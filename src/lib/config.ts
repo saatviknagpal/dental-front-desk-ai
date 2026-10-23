@@ -1,0 +1,43 @@
+// Runtime configuration from environment variables (.env / .env.local).
+// Read lazily so tests and evals can override process.env before use.
+
+export type ProviderName = "openai" | "gemini" | "deepseek" | "anthropic" | "custom";
+
+const PROVIDER_DEFAULTS: Record<ProviderName, { baseURL: string; model: string }> = {
+  openai: { baseURL: "https://api.openai.com/v1", model: "gpt-4.1-mini" },
+  gemini: { baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/", model: "gemini-3.6-flash" },
+  deepseek: { baseURL: "https://api.deepseek.com", model: "deepseek-chat" },
+  anthropic: { baseURL: "", model: "claude-sonnet-5-5" },
+  custom: { baseURL: "", model: "" },
+};
+
+/**
+ * Config for the main chat model, or for another provider (e.g. the eval judge).
+ * Provider-specific keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY) win
+ * over LLM_API_KEY, so several providers can be used side by side.
+ */
+export function llmConfig(override?: ProviderName) {
+  const main = (process.env.LLM_PROVIDER || "openai").trim().toLowerCase() as ProviderName;
+  const provider = override ?? main;
+  const isMain = provider === main;
+  const defaults = PROVIDER_DEFAULTS[provider] ?? PROVIDER_DEFAULTS.custom;
+  return {
+    provider,
+    apiKey: (process.env[`${provider.toUpperCase()}_API_KEY`] || (isMain ? process.env.LLM_API_KEY : "") || "").trim(),
+    model: (isMain && process.env.LLM_MODEL?.trim()) || defaults.model,
+    fallbackModel: isMain ? (process.env.LLM_FALLBACK_MODEL || "").trim() : "",
+    baseURL: (isMain && process.env.LLM_BASE_URL?.trim()) || defaults.baseURL,
+  };
+}
+
+export function practiceTimezone(): string {
+  return process.env.PRACTICE_TIMEZONE || "America/Los_Angeles";
+}
+
+export function staffWebhookUrl(): string {
+  return (process.env.STAFF_WEBHOOK_URL || "").trim();
+}
+
+export function demoResetAllowed(): boolean {
+  return (process.env.ALLOW_DEMO_RESET || "true").toLowerCase() === "true";
+}
