@@ -7,7 +7,7 @@ There are two demo practices, each with its own patients, dentists and timezone:
 - `/p/bright-smile`: Bright Smile Dental, San Francisco (Pacific). `/` redirects here.
 - `/p/harbor-family`: Harbor Family Dental, Boston (Eastern).
 
-Staff pages are `/staff?practice=<slug>` (alerts, bookings, conversations) and `/evals` (eval results). Both ask for the staff password.
+Staff pages are `/staff` (alerts, bookings, conversations, failed deliveries) and `/evals` (eval results). Each practice's staff sign in with their practice as the username and see only their own practice. An admin login sees every practice and the eval report.
 
 Live demo: _Render URL_ · Walkthrough video: _Loom link_
 
@@ -18,7 +18,8 @@ Stack: Next.js 15 (TypeScript), Tailwind CSS v4, Postgres (Supabase), OpenAI `gp
 | Scenario | How |
 |---|---|
 | New patient | Collects name, date of birth, phone and insurance, then registers them. Patients without insurance hear the self-pay prices, the membership plan and financing. |
-| First appointment | Cleaning (60 min), checkup (30 min) or emergency (30 min). It searches real open slots, offers two or three, and books the one the patient picks. |
+| First appointment | Cleaning (60 min), checkup (30 min) or emergency (30 min). It searches real open slots, offers two or three (also as buttons the patient can tap), and books the one the patient picks. |
+| Confirmation | After a booking the chat shows a confirmation card with "Add to calendar" (.ics) and Google Calendar buttons. If the patient gave an email, a confirmation email with the calendar file goes out too. |
 | Emergency | Asks what happened, when it started, pain level and swelling. Red flags (trouble breathing or swallowing, swelling spreading to the eye or neck) get 911/ER advice first. Otherwise it books the soonest emergency slot, and the staff alert is created in the same database transaction as the booking. |
 | Existing patient | Verifies name and date of birth, then books a follow-up, reschedules (as one atomic move) or cancels (offering a reschedule first). |
 | Times that don't work | Searches again by morning/afternoon, before or after a time, or specific weekdays. If nothing fits, it offers the next openings it can find. |
@@ -51,15 +52,15 @@ Code layout: `src/lib/` holds the domain logic and doesn't depend on Next.js (to
 
 **No double booking.** Booking is a conditional `UPDATE slots ... WHERE status = 'open'` inside a transaction. If the row count is wrong, the whole booking rolls back and the patient is offered alternatives. A test fires two bookings at the same slot at once and checks that exactly one wins.
 
-**Privacy.** Existing patients verify with full name and date of birth. A failed lookup never says which field was wrong, and three failures for the same name lock verification for 15 minutes. That count is stored in the database, so opening a new chat doesn't reset it. A verified parent can manage their children's appointments. An adult in the same household (a spouse) can be booked, but viewing or changing their existing appointments needs their own verification.
+**Privacy.** Existing patients verify with full name and date of birth. A failed lookup never says which field was wrong. Three misses for a name lock that caller out for 15 minutes, and the count is stored in the database, so opening a new chat doesn't reset it. A name is only locked for everyone after 20 misses, so one person guessing wrong on purpose can't lock the real patient out. A verified parent can manage their children's appointments. An adult in the same household (a spouse) can be booked, but viewing or changing their existing appointments needs their own verification.
 
 **Confirmation.** Ava always lists options with day, time and provider. If the patient picks one of them, that counts as the go-ahead and it books. Vague picks, cancellations and multi-person family bookings get an explicit yes/no first.
 
-**Guardrails around every turn.** Incoming messages go through OpenAI moderation. Self-harm gets a short reply with the 988 crisis line, and abuse gets a polite refusal. If the check itself fails, the chat continues. Outgoing replies are checked for any other patient's full name or phone number; if one shows up and that patient isn't verified in this chat (and the user didn't type it), the reply is replaced. Each caller gets 20 messages a minute and each chat 40 turns, which limits cost abuse. Every guardrail hit is logged and shows up in the staff transcript.
+**Guardrails around every turn.** Incoming messages go through OpenAI moderation. Self-harm gets a short reply with the 988 crisis line, and abuse gets a polite refusal. If the check itself fails, the chat continues. Outgoing replies are checked for any other patient's full name or phone number; if one shows up and that patient isn't verified in this chat (and the user didn't type it), the reply is replaced. Each caller gets 20 messages a minute (keyed by the IP our proxy reports, not one the client can fake) and each chat 40 turns, which limits cost abuse. A chat handles one message at a time: if a second arrives while the first is still running (two tabs, a retry), it gets "still working" instead of both racing to update the same chat. Every guardrail hit is logged and shows up in the staff transcript.
 
-**Alerts go through a job queue.** Saving an alert also inserts a `jobs` row in the same transaction, so a job exists if and only if the alert does. A worker claims jobs with `FOR UPDATE SKIP LOCKED` (safe with any number of app instances), sends the webhook, and retries with exponential backoff up to five times. Jobs stuck in "running" after a crash are picked up again after five minutes. It's plain Postgres, so there is no extra service to run.
+**Alerts and confirmation emails go through a job queue.** Saving an alert or a booking also inserts a `jobs` row in the same transaction, so a job exists if and only if the write it belongs to committed. A worker claims jobs with `FOR UPDATE SKIP LOCKED` (safe with any number of app instances) and retries temporary failures with exponential backoff, up to five times. Errors that can't succeed on retry, like a rejected email address, fail right away. Failed deliveries show on the practice's `/staff` page with a Retry button, so nothing disappears quietly. Jobs stuck in "running" after a crash are picked up again after five minutes, and finished jobs are deleted after a week. It's plain Postgres, so there is no extra service to run.
 
-**Multiple practices.** Patients, providers, alerts and chats carry a `practice_id`. Slots and appointments inherit it through their provider and patient. The current practice rides along with each request in Node's `AsyncLocalStorage`, so the clock, the prompt and every query use that practice's data and timezone without passing it through every function. A chat started at one practice can't be continued at another. Tests check that one practice can't see or book the other's patients or providers.
+**Multiple practices.** Patients, providers, alerts, chats and jobs carry a `practice_id`, and a unique index stops the same person being registered twice at one practice. Slots and appointments inherit it through their provider and patient. The current practice rides along with each request in Node's `AsyncLocalStorage`, so the clock, the prompt and every query use that practice's data and timezone without passing it through every function. A chat started at one practice can't be continued at another. Tests check that one practice can't see or book the other's patients or providers.
 
 **Stateless web tier.** Chat history, verified patients and token usage are stored per chat in Postgres, so any instance can serve any message.
 
@@ -67,7 +68,7 @@ Code layout: `src/lib/` holds the domain logic and doesn't depend on Next.js (to
 
 **No Redis yet.** With one app instance, rate limits in memory and Postgres for everything else are enough. Redis becomes worth it at two or more instances, for shared rate-limit counters and a short-lived availability cache. Bookings would still be checked against Postgres.
 
-**Staff access.** Staff pages use a single shared password (`STAFF_PASSWORD`, HTTP Basic auth). Patients don't log in. Like a phone call to a front desk, they identify themselves with name and date of birth.
+**Staff access.** Staff pages use HTTP Basic auth. Each practice has its own password (`STAFF_PASSWORDS`), and the username is the practice slug, so Harbor's front desk can't open Bright Smile's chats or alerts. The admin password (`STAFF_PASSWORD`) sees every practice, the eval report and the demo reset. Patients don't log in. Like a phone call to a front desk, they identify themselves with name and date of birth.
 
 ## Prioritization and scope
 
@@ -93,14 +94,14 @@ Failure modes I designed for:
 | Another patient's data in a reply | Verification guard on every tool, generic lookup errors, lockout, output privacy check | A one-time SMS code would be stronger than date of birth |
 | Missed emergency | Red-flag rules, automatic alert, two eval scenarios | Unusual symptom descriptions; more scenarios needed |
 | LLM outage or slowness | SDK retries, fallback model, friendly fallback reply, tool-call cap | No backpressure queue for chat requests |
-| Webhook down | Job queue retries with backoff | After five failures the job is marked failed; nobody is paged yet |
+| Webhook or email provider down | Job queue retries with backoff; permanent errors fail fast | Failed deliveries show on `/staff` with Retry, but nobody is paged yet |
 | Load | Stateless app, connection pool, practice-scoped indexes | Not load-tested. At ~0.1 conversations/second on average (maybe 5-10/s at peak), the real limit is LLM rate limits and cost, not the web tier |
 
-What I'd add next for production: per-practice hours and staff SSO, Redis once there's more than one instance, SMS confirmations and on-call paging through the job queue, routing simple FAQ turns to a cheaper model, load tests, tracing per tool call, PHI retention rules, BAAs with the model providers, and the eval suite in CI on every prompt or model change.
+What I'd add next for production: per-practice hours, staff SSO with per-person accounts, schema migrations as a deploy step instead of at app start, Redis once there's more than one instance, SMS confirmations and on-call paging through the job queue, routing simple FAQ turns to a cheaper model, load tests, tracing per tool call, PHI retention rules, BAAs with the model providers, and the eval suite in CI on every prompt or model change.
 
 ## Testing and evals
 
-Unit tests (`npm test`, 34 tests, no LLM): booking rules, two simultaneous bookings for one slot, verification and lockout across chats, household access, family all-or-nothing, atomic reschedule, guardrails, the job queue (retry, and no job when the booking rolls back) and practice isolation.
+Unit tests (`npm test`, 47 tests, no LLM): booking rules, two simultaneous bookings for one slot, verification and lockout, household access, family all-or-nothing, atomic reschedule, guardrails, one turn at a time per chat, the job queue (retry, fail-fast, no job when the booking rolls back), confirmation emails and calendar files, practice isolation, and staff logins.
 
 Simulated-patient evals (`npm run evals`): another LLM plays a patient with a persona and a goal and chats with the real agent. The approach follows τ-bench, which grades the final database state, not the wording.
 
@@ -141,6 +142,8 @@ npm run dev              # http://localhost:3000
 
 With `DATABASE_URL` set (Supabase: Connect, then Session pooler), it uses that Postgres. Without it, it runs on PGlite, an in-process Postgres, so nothing else is needed. Demo data is created on the first request. `npm run seed` or the button on `/staff` resets it.
 
+Without a verified domain, Resend's free tier only delivers to the email on the Resend account, so confirmation emails reach that address only.
+
 Other commands: `npm test`, `npm run evals` (needs the OpenAI key, plus `GEMINI_API_KEY` for the judge), `npm run evals:prod`.
 
 ### Demo data
@@ -170,7 +173,7 @@ Both practices are open Monday to Saturday, 8 to 6, with 30-minute slots for 8 w
 
 ## Deploying
 
-`render.yaml` is included. Create a Render web service from the repo and set `LLM_API_KEY`, `DATABASE_URL` and `STAFF_PASSWORD`. The job worker starts with the server.
+`render.yaml` is included. Create a Render web service from the repo and set `LLM_API_KEY`, `DATABASE_URL`, `STAFF_PASSWORD`, `STAFF_PASSWORDS` and (for emails) `RESEND_API_KEY`. The job worker starts with the server.
 
 ## Notes
 
