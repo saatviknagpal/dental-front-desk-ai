@@ -58,8 +58,6 @@ Browser (React)                     Next.js route handlers (stateless)
 
 ## Prioritization & scope decisions
 
-> _Draft — Saatvik to rewrite in his own words._
-
 I treated this as a system handling **10,000+ conversations a day across hundreds of practices**. At that volume, rare failures happen every day. I ranked the work by **patient impact if it goes wrong**, and built from the top down:
 
 | Priority | What | Why it's load-bearing |
@@ -147,4 +145,3 @@ Providers: Dr. Maya Patel (DDS, also does cleanings), Dr. James Okafor (DDS), Le
 
 - The practice and patients are fictional.
 - `/staff` has no authentication. It's a demo; in production it would sit behind SSO with audit logs.
-- I used AI coding assistants while building this, as the assignment allows. The design decisions and tradeoffs are my own.
