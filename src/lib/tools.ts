@@ -351,7 +351,7 @@ async function insertNotification(q: Q, type: string, urgency: string, summary: 
     "INSERT INTO notifications (type, urgency, patient_id, summary, session_id, created_at, practice_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
     [type, urgency, patientId, summary, sessionId, fmtTs(practiceNow()), pid()],
   );
-  await enqueue(q, "staff_alert", { notification_id: r!.id, type, urgency, text: summary });
+  await enqueue(q, "staff_alert", { notification_id: r!.id, type, urgency, text: `${currentPractice().name}: ${summary}` });
   return r!.id;
 }
 
@@ -492,14 +492,21 @@ async function register_patient(ctx: ToolContext, args: Args): Promise<ToolResul
   const insurance = normInsurance(args.insurance_name);
   const email = args.email ? normEmail(args.email) : null;
   if (args.email && !email) return fail("INVALID_EMAIL", "That email address doesn't look right. Ask them to check it, or register without one.");
-  const id = await transaction(async (tx) => {
-    const r = await tx.get<{ id: number }>(
-      "INSERT INTO patients (first_name, last_name, dob, phone, insurance_name, household_id, created_at, practice_id, email) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id",
-      [first, last, dob, phone, insurance, householdId, fmtTs(now), pid(), email],
-    );
-    if (householdId === null) await tx.run("UPDATE patients SET household_id = id WHERE id = $1", [r!.id]);
-    return r!.id;
-  });
+  let id: number;
+  try {
+    id = await transaction(async (tx) => {
+      const r = await tx.get<{ id: number }>(
+        // uq_patients_identity also catches two registrations racing past the duplicate check above
+        "INSERT INTO patients (first_name, last_name, dob, phone, insurance_name, household_id, created_at, practice_id, email) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id",
+        [first, last, dob, phone, insurance, householdId, fmtTs(now), pid(), email],
+      );
+      if (householdId === null) await tx.run("UPDATE patients SET household_id = id WHERE id = $1", [r!.id]);
+      return r!.id;
+    });
+  } catch (e) {
+    if ((e as { code?: string }).code === "23505") return fail("ALREADY_REGISTERED", "A patient with this name and date of birth is already on file. Treat them as an existing patient and use verify_patient.");
+    throw e;
+  }
   ctx.verified.push(id);
   return {
     ok: true,

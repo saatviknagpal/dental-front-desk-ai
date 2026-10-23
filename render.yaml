@@ -19,7 +19,5 @@ services:
         sync: false
       - key: RESEND_API_KEY
         sync: false
-      - key: PRACTICE_TIMEZONE
-        value: America/Los_Angeles
       - key: ALLOW_DEMO_RESET
         value: "true"

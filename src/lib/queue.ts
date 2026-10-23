@@ -57,9 +57,10 @@ export async function processJobs(limit = 10, handlers: Record<string, Handler> 
   return jobs.length;
 }
 
-/** Jobs stuck in 'running' (worker crashed mid-job) go back to pending after 5 minutes. */
+/** Jobs stuck in 'running' (worker crashed mid-job) go back to pending after 5 minutes; finished jobs are kept 7 days. */
 export async function requeueStuckJobs(): Promise<void> {
   await db.run("UPDATE jobs SET status = 'pending' WHERE status = 'running' AND locked_at < now() - interval '5 minutes'");
+  await db.run("DELETE FROM jobs WHERE status = 'done' AND finished_at < now() - interval '7 days'");
 }
 
 let started = false;

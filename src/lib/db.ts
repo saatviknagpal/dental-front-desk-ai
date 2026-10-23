@@ -143,6 +143,7 @@ ALTER TABLE notifications ADD COLUMN IF NOT EXISTS practice_id INTEGER NOT NULL 
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS practice_id INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS email TEXT;                -- optional, for confirmations
 CREATE INDEX IF NOT EXISTS idx_patients_practice_dob ON patients (practice_id, dob);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_patients_identity ON patients (practice_id, lower(first_name), lower(last_name), dob);
 CREATE INDEX IF NOT EXISTS idx_sessions_practice ON sessions (practice_id, last_active_at);
 CREATE INDEX IF NOT EXISTS idx_notifications_practice ON notifications (practice_id, id);
 
@@ -161,6 +162,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_due ON jobs (run_at) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_jobs_running ON jobs (locked_at) WHERE status = 'running';
+CREATE INDEX IF NOT EXISTS idx_jobs_done ON jobs (finished_at) WHERE status = 'done';
 
 -- Failed identity checks, so the lockout holds across chats (not just within one).
 CREATE TABLE IF NOT EXISTS verification_failures (

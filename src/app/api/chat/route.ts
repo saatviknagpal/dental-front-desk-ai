@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   startWorker(); // idempotent; also started at boot by instrumentation.ts
-  const caller = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || "local";
+  // The proxy appends the real client IP last; earlier entries are whatever the client sent.
+  const caller = req.headers.get("x-forwarded-for")?.split(",").pop()?.trim() || "local";
   if (!(await allowRequest(caller))) {
     return NextResponse.json({ error: "Too many messages. Please wait a minute and try again." }, { status: 429 });
   }
