@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "@/lib/db";
-import { processJobs } from "@/lib/queue";
+import { PermanentJobError, processJobs } from "@/lib/queue";
 import { seed } from "@/lib/seed";
 import { executeTool, type ToolContext } from "@/lib/tools";
 
@@ -36,6 +36,16 @@ describe("job queue", () => {
     const [job] = await jobs();
     expect(job).toMatchObject({ status: "pending", attempts: 1, last_error: "webhook down" });
     expect(await processJobs()).toBe(0); // backoff: not due yet
+  });
+
+  it("fails permanent errors right away instead of retrying", async () => {
+    await executeTool(ctx(), "notify_staff", { type: "callback", urgency: "normal", summary: "Please call back" });
+    await processJobs(10, {
+      staff_alert: async () => {
+        throw new PermanentJobError("rejected");
+      },
+    });
+    expect((await jobs())[0]).toMatchObject({ status: "failed", attempts: 1 });
   });
 
   it("creates no job when the booking that caused it rolls back", async () => {

@@ -21,6 +21,9 @@ export interface Job {
 
 type Handler = (payload: Record<string, unknown>) => Promise<void>;
 
+/** Throw this for errors that retrying can't fix (bad address, rejected request). */
+export class PermanentJobError extends Error {}
+
 const HANDLERS: Record<JobType, Handler> = {
   // Throws on failure so the job is retried.
   staff_alert: (p) => notifyStaffWebhook({ type: String(p.type), urgency: String(p.urgency), text: String(p.text) }),
@@ -44,7 +47,7 @@ export async function processJobs(limit = 10, handlers: Record<string, Handler> 
       await handlers[job.type](job.payload);
       await db.run("UPDATE jobs SET status = 'done', finished_at = now(), last_error = NULL WHERE id = $1", [job.id]);
     } catch (err) {
-      const giveUp = job.attempts >= job.max_attempts;
+      const giveUp = err instanceof PermanentJobError || job.attempts >= job.max_attempts;
       await db.run(
         `UPDATE jobs SET status = $2, last_error = $3, run_at = now() + ($4 || ' seconds')::interval WHERE id = $1`,
         [job.id, giveUp ? "failed" : "pending", (err as Error).message.slice(0, 500), String(2 ** job.attempts * 5)],

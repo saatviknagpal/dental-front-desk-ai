@@ -2,6 +2,7 @@
 // queue, never inline in a chat turn. Throws on failure so the queue retries.
 
 import { icsFile, type Booking, type PracticeInfo } from "./calendar";
+import { PermanentJobError } from "./queue";
 
 export interface ConfirmationPayload {
   to: string;
@@ -35,5 +36,9 @@ export async function sendConfirmationEmail(p: ConfirmationPayload): Promise<voi
     body: JSON.stringify({ from, to: [p.to], ...confirmationEmail(p) }),
     signal: AbortSignal.timeout(10_000),
   });
-  if (!res.ok) throw new Error(`resend ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  if (!res.ok) {
+    const msg = `resend ${res.status}: ${(await res.text()).slice(0, 200)}`;
+    // 4xx (except rate limits) won't succeed on retry: bad key, unverified sender, invalid address.
+    throw res.status >= 400 && res.status < 500 && res.status !== 429 ? new PermanentJobError(msg) : new Error(msg);
+  }
 }
