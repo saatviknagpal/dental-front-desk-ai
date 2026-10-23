@@ -6,9 +6,10 @@
 // worker without double-processing. Failed jobs retry with exponential backoff.
 
 import { db, type Q } from "./db";
+import { sendConfirmationEmail, type ConfirmationPayload } from "./email";
 import { notifyStaffWebhook } from "./notify";
 
-export type JobType = "staff_alert";
+export type JobType = "staff_alert" | "booking_confirmation";
 
 export interface Job {
   id: number;
@@ -23,6 +24,7 @@ type Handler = (payload: Record<string, unknown>) => Promise<void>;
 const HANDLERS: Record<JobType, Handler> = {
   // Throws on failure so the job is retried.
   staff_alert: (p) => notifyStaffWebhook({ type: String(p.type), urgency: String(p.urgency), text: String(p.text) }),
+  booking_confirmation: (p) => sendConfirmationEmail(p as unknown as ConfirmationPayload),
 };
 
 export async function enqueue(q: Q, type: JobType, payload: Record<string, unknown>): Promise<void> {

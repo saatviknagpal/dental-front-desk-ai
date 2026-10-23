@@ -37,6 +37,7 @@ interface PatientRow {
   phone: string;
   insurance_name: string | null;
   household_id: number | null;
+  email: string | null;
 }
 
 interface ProviderRow {
@@ -96,6 +97,11 @@ function normDob(raw: unknown): string | null {
   const iso = us ? `${us[3]}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}` : s;
   const d = parseTs(iso);
   return d ? fmtDate(d) : null;
+}
+
+function normEmail(raw: unknown): string | null {
+  const s = String(raw ?? "").trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s) ? s : null;
 }
 
 function normInsurance(raw: unknown): string | null {
@@ -330,6 +336,15 @@ async function assertNoPatientOverlap(tx: Q, patientId: number, start: Date, typ
   if (clash) throw new ToolError("PATIENT_CONFLICT", `This patient already has an appointment at ${humanTs(parseTs(clash.start_ts)!)}.`);
 }
 
+type Card = { appointment_id: number; patient_name: string; label: string; start_time: string; display: string; provider_name: string; duration_minutes: number };
+
+/** Queue a confirmation email (outbox) inside the booking's transaction, if the patient has an email. */
+async function queueConfirmation(q: Q, email: string | null, appointments: Card[]) {
+  if (!email || !appointments.length) return;
+  const { slug, name, address, phone, timezone } = currentPractice();
+  await enqueue(q, "booking_confirmation", { to: email, practice: { slug, name, address, phone, timezone }, appointments });
+}
+
 /** Store a staff alert and queue its outside delivery (webhook) in the same transaction. */
 async function insertNotification(q: Q, type: string, urgency: string, summary: string, sessionId: string, patientId: number | null) {
   const r = await q.get<{ id: number }>(
@@ -444,6 +459,7 @@ async function verify_patient(ctx: ToolContext, args: Args): Promise<ToolResult>
       age: ageOn(m.dob, now),
       access: ageOn(m.dob, now) < 18 ? "full (minor)" : "booking only (adult: they must verify themselves to view or change their existing appointments)",
     })),
+    email_on_file: !!p.email,
     upcoming_appointments: await upcomingAppointments(p.id),
   };
 }
@@ -474,10 +490,12 @@ async function register_patient(ctx: ToolContext, args: Args): Promise<ToolResul
   if (dup) return fail("ALREADY_REGISTERED", "A patient with this name and date of birth is already on file. Treat them as an existing patient and use verify_patient.");
 
   const insurance = normInsurance(args.insurance_name);
+  const email = args.email ? normEmail(args.email) : null;
+  if (args.email && !email) return fail("INVALID_EMAIL", "That email address doesn't look right. Ask them to check it, or register without one.");
   const id = await transaction(async (tx) => {
     const r = await tx.get<{ id: number }>(
-      "INSERT INTO patients (first_name, last_name, dob, phone, insurance_name, household_id, created_at, practice_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id",
-      [first, last, dob, phone, insurance, householdId, fmtTs(now), pid()],
+      "INSERT INTO patients (first_name, last_name, dob, phone, insurance_name, household_id, created_at, practice_id, email) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id",
+      [first, last, dob, phone, insurance, householdId, fmtTs(now), pid(), email],
     );
     if (householdId === null) await tx.run("UPDATE patients SET household_id = id WHERE id = $1", [r!.id]);
     return r!.id;
@@ -485,9 +503,27 @@ async function register_patient(ctx: ToolContext, args: Args): Promise<ToolResul
   ctx.verified.push(id);
   return {
     ok: true,
-    patient: { patient_id: id, first_name: first, last_name: last, date_of_birth: dob, insurance: insurance ?? "none (self-pay)", age },
+    patient: { patient_id: id, first_name: first, last_name: last, date_of_birth: dob, insurance: insurance ?? "none (self-pay)", age, email_on_file: !!email },
     note: insurance ? undefined : "No insurance on file. Mention self-pay prices and the membership plan if relevant.",
   };
+}
+
+async function email_confirmation(ctx: ToolContext, args: Args): Promise<ToolResult> {
+  const patient = await requireAccess(ctx, args.patient_id, "booking");
+  const email = normEmail(args.email);
+  if (!email) return fail("INVALID_EMAIL", "That email address doesn't look right. Ask them to check it.");
+  const upcoming = await upcomingAppointments(patient.id);
+  if (!upcoming.length) return fail("NO_UPCOMING", "This patient has no upcoming appointments to confirm.");
+  const name = `${patient.first_name} ${patient.last_name}`;
+  await transaction(async (tx) => {
+    await tx.run("UPDATE patients SET email = $1 WHERE id = $2", [email, patient.id]);
+    await queueConfirmation(
+      tx,
+      email,
+      upcoming.map((a) => ({ appointment_id: a.appointment_id, patient_name: name, label: a.label, start_time: a.start_time, display: a.display, provider_name: a.provider_name, duration_minutes: APPOINTMENT_TYPES[a.type].minutes })),
+    );
+  });
+  return { ok: true, sent_to: email, appointments: upcoming.length, note: "Saved for future confirmations too." };
 }
 
 async function list_appointments(ctx: ToolContext, args: Args): Promise<ToolResult> {
@@ -545,6 +581,7 @@ async function book_appointment(ctx: ToolContext, args: Args): Promise<ToolResul
   try {
     const result = await transaction(async (tx) => {
       const booked = await bookOne(tx, ctx, b);
+      await queueConfirmation(tx, b.patient.email, [booked]);
       const notificationId =
         b.type === "emergency"
           ? await insertNotification(
@@ -584,6 +621,9 @@ async function reschedule_appointment(ctx: ToolContext, args: Args): Promise<Too
     await transaction(async (tx) => {
       await releaseSlots(tx, appt.id);
       await assertNoPatientOverlap(tx, patient.id, start, appt.type, appt.id);
+      await queueConfirmation(tx, patient.email, [
+        { appointment_id: appt.id, patient_name: `${patient.first_name} ${patient.last_name}`, label: APPOINTMENT_TYPES[appt.type].label, start_time: fmtTs(start), display: humanTs(start), provider_name: provider.name, duration_minutes: APPOINTMENT_TYPES[appt.type].minutes },
+      ]);
       await claimSlots(tx, appt.id, provider.id, start, appt.type);
       await tx.run("UPDATE appointments SET start_ts = $1, end_ts = $2, provider_id = $3, updated_at = $4, session_id = $5 WHERE id = $6", [
         fmtTs(start),
@@ -699,6 +739,10 @@ async function book_family_appointments(ctx: ToolContext, args: Args): Promise<T
     const booked = await transaction(async (tx) => {
       const out = [];
       for (const b of inputs) out.push(await bookOne(tx, ctx, b));
+      // One email per address (a parent's kids usually share the parent's email).
+      for (const email of new Set(inputs.map((b) => b.patient.email).filter(Boolean))) {
+        await queueConfirmation(tx, email, out.filter((_, i) => inputs[i].patient.email === email));
+      }
       return out;
     });
     return { ok: true, appointments: booked };
@@ -735,6 +779,7 @@ const HANDLERS: Record<string, (ctx: ToolContext, args: Args) => Promise<ToolRes
   find_family_slots,
   book_family_appointments,
   notify_staff,
+  email_confirmation,
 };
 
 /** Execute a tool by name. Never throws: unexpected errors become { ok: false }. */

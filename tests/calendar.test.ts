@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { googleCalendarUrl, icsFile } from "@/components/BookingCard";
+import { googleCalendarUrl, icsFile } from "@/lib/calendar";
 
 const booking = {
   appointment_id: 7,

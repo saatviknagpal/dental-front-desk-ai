@@ -39,6 +39,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         date_of_birth: str("YYYY-MM-DD"),
         phone: str("10-digit US phone"),
         insurance_name: str("Insurance company name, or 'none' if self-pay"),
+        email: str("Optional email for booking confirmations"),
         same_household_as_patient_id: int("Optional: link to a verified patient's household (family bookings)"),
       },
       required: ["first_name", "last_name", "date_of_birth"],
@@ -152,6 +153,15 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         callback_phone: str("Optional phone to call back"),
       },
       required: ["type", "urgency", "summary"],
+    },
+  },
+  {
+    name: "email_confirmation",
+    description: "Email the patient a confirmation of their upcoming appointments (with a calendar file), and save the email for future confirmations. Use when they ask for one, or when you offered after booking and they gave an email.",
+    parameters: {
+      type: "object",
+      properties: { patient_id: int("Verified or newly registered patient id"), email: str("Email address the patient gave") },
+      required: ["patient_id", "email"],
     },
   },
 ];
