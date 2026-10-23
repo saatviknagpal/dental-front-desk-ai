@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { MAX_USER_CHARS, runTurn } from "@/lib/agent";
 import { allowRequest } from "@/lib/guardrails";
 import { practiceBySlug, PRACTICES, withPractice } from "@/lib/practice";
+import { startWorker } from "@/lib/queue";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  startWorker(); // idempotent; also started at boot by instrumentation.ts
   const caller = req.headers.get("x-forwarded-for")?.split(",")[0].trim() || "local";
   if (!(await allowRequest(caller))) {
     return NextResponse.json({ error: "Too many messages. Please wait a minute and try again." }, { status: 429 });

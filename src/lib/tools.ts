@@ -523,7 +523,7 @@ async function email_confirmation(ctx: ToolContext, args: Args): Promise<ToolRes
       upcoming.map((a) => ({ appointment_id: a.appointment_id, patient_name: name, label: a.label, start_time: a.start_time, display: a.display, provider_name: a.provider_name, duration_minutes: APPOINTMENT_TYPES[a.type].minutes })),
     );
   });
-  return { ok: true, sent_to: email, appointments: upcoming.length, note: "Saved for future confirmations too." };
+  return { ok: true, queued_to: email, appointments: upcoming.length, note: "The email is on its way (usually within a minute). Say it's on its way, not that it was sent. The address is saved for future confirmations." };
 }
 
 async function list_appointments(ctx: ToolContext, args: Args): Promise<ToolResult> {
