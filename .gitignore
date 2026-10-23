@@ -1,0 +1,14 @@
+.env
+data/
+evals/results/*.json
+!evals/results/.gitkeep
+
+# next.js scaffold
+/node_modules
+/.next/
+/out/
+/build
+*.tsbuildinfo
+next-env.d.ts
+npm-debug.log*
+.vercel

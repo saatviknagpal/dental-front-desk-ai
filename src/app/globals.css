@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  --bg: #f4f8f7;
+  --surface: #ffffff;
+  --surface-2: #eef5f3;
+  --text: #13201d;
+  --muted: #5b6b67;
+  --border: #dbe6e3;
+  --brand: #0d7a6f;
+  --brand-strong: #0a5f56;
+  --brand-soft: #e3f3f0;
+  --user-bubble: #0d7a6f;
+  --user-text: #ffffff;
+  --danger: #b42318;
+  --danger-soft: #fdecea;
+  --warn: #9a6200;
+  --warn-soft: #fff4dc;
+  --info: #1d5fb8;
+  --info-soft: #e7f0fc;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1513;
+    --surface: #141f1c;
+    --surface-2: #1a2824;
+    --text: #e6efec;
+    --muted: #9db0ab;
+    --border: #26372f;
+    --brand: #3fb8a8;
+    --brand-strong: #6fd3c5;
+    --brand-soft: #173430;
+    --user-bubble: #2a9d8f;
+    --user-text: #ffffff;
+    --danger: #ff8a7a;
+    --danger-soft: #3a1c19;
+    --warn: #f2c063;
+    --warn-soft: #362a12;
+    --info: #8fb8ff;
+    --info-soft: #18263d;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-user-bubble: var(--user-bubble);
+  --color-user-text: var(--user-text);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+html {
+  font-size: var(--base-font, 16px);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+}
+
+@keyframes blink {
+  0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-2px); }
+}
+.typing-dot { animation: blink 1.2s infinite ease-in-out; }
+.typing-dot:nth-child(2) { animation-delay: 0.15s; }
+.typing-dot:nth-child(3) { animation-delay: 0.3s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .typing-dot { animation: none; }
+}
