@@ -229,8 +229,9 @@ function pgliteBackend(dataDir?: string): Backend {
 
 const g = globalThis as unknown as { __dentalDb?: { key: string; backend: Backend; ready: Promise<void> } };
 
+// Includes the schema size so a hot-reloaded schema change re-runs the (idempotent) DDL.
 function backendKey() {
-  return process.env.DATABASE_URL || `pglite:${process.env.PGLITE_DIR || "memory"}`;
+  return `${process.env.DATABASE_URL || `pglite:${process.env.PGLITE_DIR || "memory"}`}#${SCHEMA.length}`;
 }
 
 /** Get the shared backend (one pool per process), creating the schema on first use. */
