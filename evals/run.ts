@@ -29,7 +29,7 @@ function arg(name: string): string | undefined {
 }
 
 interface Step {
-  role: "user" | "llm" | "tool" | "assistant";
+  role: "user" | "llm" | "tool" | "assistant" | "guardrail";
   content: unknown;
 }
 
@@ -134,7 +134,7 @@ Rules:
   // Full trajectory from the agent's own log: user, llm (decision + tokens + cost), tool (args + result), assistant.
   const steps: Step[] = sessionId
     ? (await db.all<{ role: Step["role"]; content: string }>("SELECT role, content FROM messages WHERE session_id = $1 ORDER BY id", [sessionId])).map((m) => {
-        if (m.role === "llm" || m.role === "tool") {
+        if (m.role === "llm" || m.role === "tool" || m.role === "guardrail") {
           try {
             return { role: m.role, content: JSON.parse(m.content) };
           } catch {

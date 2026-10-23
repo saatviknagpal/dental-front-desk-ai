@@ -54,7 +54,7 @@ interface Dashboard {
 
 interface TranscriptMessage {
   id: number;
-  role: "user" | "assistant" | "tool" | "llm";
+  role: "user" | "assistant" | "tool" | "llm" | "guardrail";
   content: string;
   created_at: string;
 }
@@ -104,6 +104,13 @@ function Transcript({ sessionId, onClose }: { sessionId: string; onClose: () => 
         <div className="flex-1 space-y-3 overflow-y-auto p-5 text-sm">
           {messages === null && <p className="text-muted">Loading…</p>}
           {messages?.map((m) => {
+            if (m.role === "guardrail") {
+              return (
+                <div key={m.id} className="rounded-lg bg-danger-soft px-3 py-1.5 font-mono text-xs text-danger">
+                  Guardrail triggered: {m.content}
+                </div>
+              );
+            }
             if (m.role === "llm") {
               let c: { step?: number; model?: string; decision?: string; tool_calls?: { name: string }[]; inputTokens?: number; cachedInputTokens?: number; outputTokens?: number; costUsd?: number; llmMs?: number } = {};
               try {
