@@ -4,6 +4,7 @@
 import { randomUUID } from "node:crypto";
 import { llmConfig } from "./config";
 import { db } from "./db";
+import { checkOutput, MAX_TURNS_PER_SESSION, moderateInput } from "./guardrails";
 import { complete, llmReady, type ChatMessage, type CompletionResponse } from "./llm";
 import { PRACTICE } from "./practice";
 import { addUsage, costUsd, emptyUsage, type Usage } from "./pricing";
@@ -80,7 +81,7 @@ async function saveSession(id: string, messages: ChatMessage[], ctx: ToolContext
   ]);
 }
 
-async function logMessage(sessionId: string, role: "user" | "assistant" | "tool" | "llm", content: string) {
+async function logMessage(sessionId: string, role: "user" | "assistant" | "tool" | "llm" | "guardrail", content: string) {
   await db.run("INSERT INTO messages (session_id, role, content, created_at) VALUES ($1,$2,$3,$4)", [sessionId, role, content, fmtTs(practiceNow())]);
 }
 
@@ -115,7 +116,16 @@ export async function runTurn(sessionId: string | undefined, userText: string): 
   let degraded = false;
   let usage = emptyUsage();
 
-  if (!llmReady()) {
+  const turns = await db.get<{ n: number }>("SELECT count(*)::int AS n FROM messages WHERE session_id = $1 AND role = 'user'", [session.id]);
+  const moderation = await moderateInput(text);
+
+  if ((turns?.n ?? 0) > MAX_TURNS_PER_SESSION) {
+    reply = `This chat has gotten quite long. Please start a new chat, or call us at ${PRACTICE.phone} and the front desk will help.`;
+    await logMessage(session.id, "guardrail", JSON.stringify({ rule: "max-turns", limit: MAX_TURNS_PER_SESSION }));
+  } else if (!moderation.ok) {
+    reply = moderation.reply;
+    await logMessage(session.id, "guardrail", JSON.stringify({ rule: "moderation", reason: moderation.reason }));
+  } else if (!llmReady()) {
     reply = "The assistant isn't configured yet (missing LLM_API_KEY). " + FALLBACK_REPLY;
     degraded = true;
   } else {
@@ -163,6 +173,14 @@ export async function runTurn(sessionId: string | undefined, userText: string): 
       reply = FALLBACK_REPLY;
       degraded = true;
     }
+  }
+
+  // Never send another patient's name or phone, whatever the model produced.
+  const userTexts = messages.filter((m) => m.role === "user").map((m) => m.content as string);
+  const leak = await checkOutput(reply, [...ctx.verified, ...ctx.household], userTexts);
+  if (leak) {
+    await logMessage(session.id, "guardrail", JSON.stringify({ rule: "output-privacy", reason: leak.reason, blocked: reply }));
+    reply = leak.reply;
   }
 
   messages.push({ role: "assistant", content: reply });
