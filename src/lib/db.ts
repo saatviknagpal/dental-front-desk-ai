@@ -173,6 +173,8 @@ CREATE TABLE IF NOT EXISTS verification_failures (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_verification_failures ON verification_failures (name_key, created_at);
+ALTER TABLE verification_failures ADD COLUMN IF NOT EXISTS caller TEXT;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS busy_until TIMESTAMPTZ;      -- a turn is in progress
 `;
 
 export type Row = Record<string, unknown>;

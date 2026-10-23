@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { MAX_USER_CHARS, runTurn } from "@/lib/agent";
+import { MAX_USER_CHARS, runTurn, SessionBusyError } from "@/lib/agent";
 import { allowRequest } from "@/lib/guardrails";
 import { practiceBySlug, PRACTICES, withPractice } from "@/lib/practice";
 import { startWorker } from "@/lib/queue";
@@ -26,6 +26,11 @@ export async function POST(req: Request) {
 
   const practice = body.practice === undefined ? PRACTICES[0] : practiceBySlug(body.practice);
   if (!practice) return NextResponse.json({ error: "Unknown practice" }, { status: 404 });
-  const result = await withPractice(practice, () => runTurn(typeof body.sessionId === "string" ? body.sessionId : undefined, message));
-  return NextResponse.json(result);
+  try {
+    const result = await withPractice(practice, () => runTurn(typeof body.sessionId === "string" ? body.sessionId : undefined, message, caller));
+    return NextResponse.json(result);
+  } catch (e) {
+    if (e instanceof SessionBusyError) return NextResponse.json({ error: "Still working on your last message. One moment." }, { status: 409 });
+    throw e;
+  }
 }

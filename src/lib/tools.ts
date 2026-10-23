@@ -23,6 +23,8 @@ export interface ToolContext {
   /** Booking-only access: adult household members of a verified patient (e.g. a spouse). */
   household: number[];
   failedVerifications: number;
+  /** Caller IP (or similar), for the cross-chat lockout. */
+  caller?: string;
 }
 
 export type ToolResult = { ok: true; [key: string]: unknown } | { ok: false; error: string; message: string; [key: string]: unknown };
@@ -59,6 +61,7 @@ interface AppointmentRow {
 
 const MAX_FAILED_VERIFICATIONS = 3;
 const LOCKOUT_MINUTES = 15;
+const MAX_FAILED_PER_NAME = 20;
 
 class ToolError extends Error {
   constructor(
@@ -414,8 +417,13 @@ async function verify_patient(ctx: ToolContext, args: Args): Promise<ToolResult>
   if (!dob || !name.includes(" ")) return fail("MISSING_INFO", "Need the patient's full name (first and last) and date of birth (YYYY-MM-DD).");
   // The lockout is also counted per name across all chats, so opening a new chat doesn't reset it.
   const since = fmtTs(addMinutes(practiceNow(), -LOCKOUT_MINUTES));
-  const recent = await db.get<{ n: number }>("SELECT count(*)::int AS n FROM verification_failures WHERE name_key = $1 AND created_at >= $2", [`${pid()}:${name}`, since]);
-  if ((recent?.n ?? 0) >= MAX_FAILED_VERIFICATIONS) return LOCKED();
+  // Lock this caller after 3 misses for a name; lock the name for everyone only after many misses,
+  // so one person can't lock a real patient out by guessing wrong on purpose.
+  const recent = await db.get<{ mine: number; total: number }>(
+    "SELECT count(*) FILTER (WHERE caller IS NOT DISTINCT FROM $3)::int AS mine, count(*)::int AS total FROM verification_failures WHERE name_key = $1 AND created_at >= $2",
+    [`${pid()}:${name}`, since, ctx.caller ?? null],
+  );
+  if ((recent?.mine ?? 0) >= MAX_FAILED_VERIFICATIONS || (recent?.total ?? 0) >= MAX_FAILED_PER_NAME) return LOCKED();
   const tokens = name.split(" ");
   let match = (await db.all<PatientRow>("SELECT * FROM patients WHERE dob = $1 AND practice_id = $2", [dob, pid()])).filter(
     (p) => tokens[0] === normName(p.first_name) && tokens[tokens.length - 1] === normName(p.last_name),
@@ -427,7 +435,7 @@ async function verify_patient(ctx: ToolContext, args: Args): Promise<ToolResult>
   }
   if (match.length !== 1) {
     ctx.failedVerifications++;
-    await db.run("INSERT INTO verification_failures (name_key, session_id, created_at) VALUES ($1,$2,$3)", [`${pid()}:${name}`, ctx.sessionId, fmtTs(practiceNow())]);
+    await db.run("INSERT INTO verification_failures (name_key, session_id, created_at, caller) VALUES ($1,$2,$3,$4)", [`${pid()}:${name}`, ctx.sessionId, fmtTs(practiceNow()), ctx.caller ?? null]);
     return fail(
       "NOT_FOUND",
       "No patient record matches that name and date of birth. Don't say which part didn't match. Ask them to double-check spelling and DOB, or offer to register them as a new patient.",

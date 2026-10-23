@@ -82,20 +82,31 @@ interface SessionRow {
 
 const fallbackReply = () => `I'm sorry, I'm having trouble on my end right now. You can call us at ${currentPractice().phone} (Mon-Sat, 8 AM-6 PM), or try again in a moment. If this is a dental emergency with trouble breathing, swallowing or uncontrolled bleeding, please call 911.`;
 
-async function loadSession(sessionId: string | undefined): Promise<{ id: string; messages: ChatMessage[]; ctx: ToolContext }> {
+/** A second message arrived for a chat whose previous turn is still running. */
+export class SessionBusyError extends Error {}
+
+async function loadSession(sessionId: string | undefined, caller?: string): Promise<{ id: string; messages: ChatMessage[]; ctx: ToolContext }> {
   const practiceId = currentPractice().id;
-  const row = sessionId ? await db.get<SessionRow>("SELECT * FROM sessions WHERE id = $1 AND practice_id = $2", [sessionId, practiceId]) : undefined;
-  if (row) {
-    return {
-      id: row.id,
-      messages: row.llm_messages ?? [],
-      ctx: { sessionId: row.id, verified: row.access?.verified ?? [], household: row.access?.household ?? [], failedVerifications: row.failed_verifications },
-    };
+  if (sessionId) {
+    // Claim the chat for this turn; the lease expires on its own if the server dies mid-turn.
+    const row = await db.get<SessionRow>(
+      `UPDATE sessions SET busy_until = now() + interval '2 minutes'
+       WHERE id = $1 AND practice_id = $2 AND (busy_until IS NULL OR busy_until < now()) RETURNING *`,
+      [sessionId, practiceId],
+    );
+    if (row) {
+      return {
+        id: row.id,
+        messages: row.llm_messages ?? [],
+        ctx: { sessionId: row.id, verified: row.access?.verified ?? [], household: row.access?.household ?? [], failedVerifications: row.failed_verifications, caller },
+      };
+    }
+    if (await db.get("SELECT 1 FROM sessions WHERE id = $1 AND practice_id = $2", [sessionId, practiceId])) throw new SessionBusyError();
   }
   const id = randomUUID();
   const now = fmtTs(practiceNow());
-  await db.run("INSERT INTO sessions (id, practice_id, started_at, last_active_at, model) VALUES ($1,$2,$3,$3,$4)", [id, practiceId, now, llmConfig().model]);
-  return { id, messages: [], ctx: { sessionId: id, verified: [], household: [], failedVerifications: 0 } };
+  await db.run("INSERT INTO sessions (id, practice_id, started_at, last_active_at, model, busy_until) VALUES ($1,$2,$3,$3,$4, now() + interval '2 minutes')", [id, practiceId, now, llmConfig().model]);
+  return { id, messages: [], ctx: { sessionId: id, verified: [], household: [], failedVerifications: 0, caller } };
 }
 
 /** Keep the last N messages, cutting only at a user message so tool calls stay paired with results. */
@@ -141,9 +152,17 @@ async function callModel(messages: ChatMessage[]): Promise<CompletionResponse & 
   throw lastErr;
 }
 
-export async function runTurn(sessionId: string | undefined, userText: string): Promise<TurnResult> {
+export async function runTurn(sessionId: string | undefined, userText: string, caller?: string): Promise<TurnResult> {
   await ensureSeeded();
-  const session = await loadSession(sessionId);
+  const session = await loadSession(sessionId, caller);
+  try {
+    return await runClaimedTurn(session, userText);
+  } finally {
+    await db.run("UPDATE sessions SET busy_until = NULL WHERE id = $1", [session.id]);
+  }
+}
+
+async function runClaimedTurn(session: Awaited<ReturnType<typeof loadSession>>, userText: string): Promise<TurnResult> {
   const { messages, ctx } = session;
   const text = userText.trim().slice(0, MAX_USER_CHARS);
   messages.push({ role: "user", content: text });
