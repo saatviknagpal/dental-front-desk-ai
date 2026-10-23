@@ -2,7 +2,7 @@
 
 A conversational assistant ("Ava") for a dental practice. It books, reschedules and cancels appointments against a real database, handles new and existing patients, family back-to-back bookings and emergencies, answers insurance and pricing questions, and hands off to staff when needed. A front-desk dashboard shows staff alerts, bookings and conversations, and an eval harness with simulated patients tests the main scenarios.
 
-- **Live demo:** _TBD (Render URL)_ · patient chat at `/`, staff dashboard at `/staff`
+- **Live demo:** _TBD (Render URL)_ · patient chat at `/`, staff dashboard at `/staff` (staff pages ask for a password, shared with the submission)
 - **Walkthrough video:** _TBD (Loom)_
 
 **Stack:** Next.js 15 (TypeScript, App Router) · Tailwind CSS v4 · Postgres (Supabase) · OpenAI `gpt-4.1-mini` (Claude, Gemini and DeepSeek can be swapped in through env) · Vitest.
@@ -144,4 +144,5 @@ Providers: Dr. Maya Patel (DDS, also does cleanings), Dr. James Okafor (DDS), Le
 ## Notes
 
 - The practice and patients are fictional.
-- `/staff` has no authentication. It's a demo; in production it would sit behind SSO with audit logs.
+- Patients don't log in: like a real front desk, the assistant verifies identity with full name + date of birth before touching existing appointments.
+- Staff pages (`/staff`, `/evals`, `/api/staff/*`) use a single shared password (`STAFF_PASSWORD`, HTTP Basic auth). Production would use staff SSO with per-user audit logs.
