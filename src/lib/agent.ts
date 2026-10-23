@@ -33,7 +33,45 @@ export interface TurnResult {
   degraded?: boolean;
   /** Tokens + estimated cost of the LLM calls made in this turn. */
   usage: Usage;
+  /** Appointments booked or moved this turn (for confirmation cards). */
+  bookings: BookingCard[];
+  /** Times offered this turn, from real tool results (for tap-to-pick buttons). */
+  choices: { label: string; message: string }[];
 }
+
+export interface BookingCard {
+  appointment_id: number;
+  patient_name: string;
+  label: string;
+  start_time: string;
+  display: string;
+  provider_name: string;
+  duration_minutes: number;
+}
+
+type Slot = { display: string; provider_name: string };
+
+/** Pull confirmation cards and tap-to-pick choices out of a tool result. */
+function collectUi(name: string, result: Record<string, unknown>, bookings: BookingCard[], choices: { label: string; message: string }[]) {
+  if (!result.ok) {
+    if (Array.isArray(result.alternatives)) choices.splice(0, choices.length, ...(result.alternatives as Slot[]).map(slotChoice));
+    return;
+  }
+  if ((name === "book_appointment" || name === "reschedule_appointment") && result.appointment) bookings.push(result.appointment as BookingCard);
+  if (name === "book_family_appointments") bookings.push(...(result.appointments as BookingCard[]));
+  if (name === "find_available_slots") {
+    const slots = ((result.slots as Slot[])?.length ? result.slots : result.next_available) as Slot[];
+    choices.splice(0, choices.length, ...(slots ?? []).map(slotChoice));
+  }
+  if (name === "find_family_slots" && Array.isArray(result.options)) {
+    choices.splice(0, choices.length, ...(result.options as { option: number; day: string; bookings: { display: string }[] }[]).map((o) => ({
+      label: `Option ${o.option}: ${o.bookings[0].display}`,
+      message: `Option ${o.option} works (starting ${o.bookings[0].display}).`,
+    })));
+  }
+}
+
+const slotChoice = (s: Slot) => ({ label: `${s.display} · ${s.provider_name}`, message: `${s.display} with ${s.provider_name} works for me.` });
 
 interface SessionRow {
   id: string;
@@ -116,6 +154,8 @@ export async function runTurn(sessionId: string | undefined, userText: string): 
   let model = llmConfig().model;
   let degraded = false;
   let usage = emptyUsage();
+  const bookings: BookingCard[] = [];
+  const choices: { label: string; message: string }[] = [];
 
   const turns = await db.get<{ n: number }>("SELECT count(*)::int AS n FROM messages WHERE session_id = $1 AND role = 'user'", [session.id]);
   const moderation = await moderateInput(text);
@@ -158,6 +198,7 @@ export async function runTurn(sessionId: string | undefined, userText: string): 
         for (const call of res.toolCalls) {
           const started = Date.now();
           const result = await executeTool(ctx, call.name, call.arguments);
+          collectUi(call.name, result, bookings, choices);
           const event: ToolEvent = { name: call.name, args: call.arguments, ok: result.ok, error: result.ok ? undefined : result.error, ms: Date.now() - started };
           toolEvents.push(event);
           await logMessage(session.id, "tool", JSON.stringify({ ...event, result }));
@@ -187,7 +228,8 @@ export async function runTurn(sessionId: string | undefined, userText: string): 
   messages.push({ role: "assistant", content: reply });
   await logMessage(session.id, "assistant", reply);
   await saveSession(session.id, messages, ctx, model, usage);
-  return { sessionId: session.id, reply, toolEvents, model, degraded, usage };
+  // Offer tap-to-pick buttons only when the reply is still asking the patient to choose.
+  return { sessionId: session.id, reply, toolEvents, model, degraded, usage, bookings, choices: bookings.length ? [] : choices };
 }
 
 export async function recordFeedback(sessionId: string, rating: 1 | -1, comment?: string) {

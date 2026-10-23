@@ -605,8 +605,11 @@ async function reschedule_appointment(ctx: ToolContext, args: Args): Promise<Too
       label: APPOINTMENT_TYPES[appt.type].label,
       previous_time: humanTs(parseTs(appt.start_ts)!),
       new_time: humanTs(start),
+      display: humanTs(start),
       start_time: fmtTs(start),
       provider_name: provider.name,
+      patient_name: `${patient.first_name} ${patient.last_name}`,
+      duration_minutes: APPOINTMENT_TYPES[appt.type].minutes,
     },
   };
 }

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import BookingCard, { type Booking } from "./BookingCard";
 
 interface ToolEvent {
   name: string;
@@ -16,12 +17,14 @@ interface Message {
   role: "user" | "assistant";
   text: string;
   toolEvents?: ToolEvent[];
+  bookings?: Booking[];
+  choices?: { label: string; message: string }[];
   failed?: boolean;
 }
 
 interface Props {
   greeting: string;
-  practice: { slug: string; name: string; assistantName: string; address: string; phone: string; hoursText: string; parking: string };
+  practice: { slug: string; name: string; assistantName: string; address: string; phone: string; hoursText: string; parking: string; timezone: string };
 }
 
 const QUICK_REPLIES = [
@@ -184,7 +187,7 @@ export default function Chat({ greeting, practice }: Props) {
         if (!res.ok) throw new Error(data.error || "Request failed");
         setSessionId(data.sessionId);
         store.set(SESSION_KEY, data.sessionId);
-        setMessages((m) => [...m, { id: uid(), role: "assistant", text: data.reply, toolEvents: data.toolEvents }]);
+        setMessages((m) => [...m, { id: uid(), role: "assistant", text: data.reply, toolEvents: data.toolEvents, bookings: data.bookings, choices: data.choices }]);
       } catch {
         setMessages((m) => [
           ...m,
@@ -318,6 +321,21 @@ export default function Chat({ greeting, practice }: Props) {
                     <span className="sr-only">{m.role === "user" ? "You said:" : `${practice.assistantName} said:`}</span>
                     <RichText text={m.text} />
                   </div>
+                  {m.bookings?.map((b) => <BookingCard key={b.appointment_id} booking={b} practice={practice} />)}
+                  {m.choices && m.choices.length > 0 && m.id === messages[messages.length - 1]?.id && !pending && (
+                    <div className="mt-2 flex flex-wrap gap-2" aria-label="Available times">
+                      {m.choices.map((c) => (
+                        <button
+                          key={c.label}
+                          type="button"
+                          onClick={() => send(c.message)}
+                          className="rounded-full border border-brand/40 bg-surface px-3 py-1.5 text-left text-sm text-brand-strong hover:bg-brand-soft"
+                        >
+                          {c.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   {showSteps && m.toolEvents && m.toolEvents.length > 0 && (
                     <ul className="mt-1.5 flex flex-wrap gap-1.5" aria-label="Assistant steps">
                       {m.toolEvents.map((t, i) => (
