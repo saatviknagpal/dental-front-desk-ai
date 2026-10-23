@@ -162,6 +162,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_due ON jobs (run_at) WHERE status = 'pending';
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS practice_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_jobs_failed ON jobs (practice_id, id) WHERE status = 'failed';
 CREATE INDEX IF NOT EXISTS idx_jobs_running ON jobs (locked_at) WHERE status = 'running';
 CREATE INDEX IF NOT EXISTS idx_jobs_done ON jobs (finished_at) WHERE status = 'done';
 

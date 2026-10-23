@@ -36,6 +36,12 @@ export async function dashboard(practiceId: number) {
     [practiceId],
   );
 
+  const failedJobs = await db.all<Record<string, unknown>>(
+    `SELECT id, type, attempts, last_error, created_at, payload->>'to' AS to, payload->>'text' AS text
+     FROM jobs WHERE practice_id = $1 AND status = 'failed' ORDER BY id DESC LIMIT 20`,
+    [practiceId],
+  );
+
   const stats = await db.get<{ conversations: number; up: number; down: number; chat_bookings: number; total_cost: number }>(
     `SELECT (SELECT count(*)::int FROM sessions WHERE practice_id = $1) AS conversations,
             (SELECT coalesce(sum((usage->>'costUsd')::float), 0) FROM sessions WHERE practice_id = $1) AS total_cost,
@@ -58,6 +64,7 @@ export async function dashboard(practiceId: number) {
     notifications,
     appointments,
     sessions,
+    failedJobs,
   };
 }
 

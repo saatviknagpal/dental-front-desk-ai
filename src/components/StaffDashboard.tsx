@@ -52,6 +52,8 @@ interface Dashboard {
   demoResetAllowed: boolean;
   practice: { slug: string; name: string };
   practices: { slug: string; name: string }[];
+  admin: boolean;
+  failedJobs: { id: string; type: string; attempts: number; last_error: string | null; created_at: string; to: string | null; text: string | null }[];
 }
 
 interface TranscriptMessage {
@@ -186,6 +188,11 @@ export default function StaffDashboard() {
     load();
   };
 
+  const retryJob = async (id: string) => {
+    await fetch(`/api/staff/jobs/${id}?practice=${data?.practice.slug ?? ""}`, { method: "POST" });
+    load();
+  };
+
   const reset = async () => {
     if (!window.confirm("Reset all demo data (patients, appointments, chats)?")) return;
     await fetch("/api/staff/reset", { method: "POST" });
@@ -226,9 +233,11 @@ export default function StaffDashboard() {
           <Link href={`/p/${data.practice.slug}`} className="rounded-lg border border-border px-3 py-2 text-sm hover:bg-surface-2">
             Open patient chat
           </Link>
-          <Link href="/evals" className="rounded-lg border border-border px-3 py-2 text-sm hover:bg-surface-2">
-            Eval report
-          </Link>
+          {data.admin && (
+            <Link href="/evals" className="rounded-lg border border-border px-3 py-2 text-sm hover:bg-surface-2">
+              Eval report
+            </Link>
+          )}
           {data.demoResetAllowed && (
             <button type="button" onClick={reset} className="rounded-lg border border-border px-3 py-2 text-sm text-danger hover:bg-danger-soft">
               Reset demo data
@@ -251,6 +260,24 @@ export default function StaffDashboard() {
           </div>
         ))}
       </div>
+
+      {data.failedJobs.length > 0 && (
+        <Card title="Delivery problems">
+          <ul className="space-y-2 text-sm">
+            {data.failedJobs.map((j) => (
+              <li key={j.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border px-3 py-2">
+                <div className="min-w-0">
+                  <div className="font-medium">{j.type === "booking_confirmation" ? `Confirmation email to ${j.to}` : `Staff alert: ${j.text ?? ""}`}</div>
+                  <div className="truncate text-xs text-muted">{j.last_error}</div>
+                </div>
+                <button type="button" onClick={() => retryJob(j.id)} className="rounded-lg border border-border px-3 py-1 text-xs font-medium text-brand hover:bg-surface-2">
+                  Retry
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-5">
         <div className="lg:col-span-2">

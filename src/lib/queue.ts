@@ -8,6 +8,7 @@
 import { db, type Q } from "./db";
 import { sendConfirmationEmail, type ConfirmationPayload } from "./email";
 import { notifyStaffWebhook } from "./notify";
+import { currentPractice } from "./practice";
 
 export type JobType = "staff_alert" | "booking_confirmation";
 
@@ -31,7 +32,7 @@ const HANDLERS: Record<JobType, Handler> = {
 };
 
 export async function enqueue(q: Q, type: JobType, payload: Record<string, unknown>): Promise<void> {
-  await q.run("INSERT INTO jobs (type, payload) VALUES ($1, $2)", [type, JSON.stringify(payload)]);
+  await q.run("INSERT INTO jobs (type, payload, practice_id) VALUES ($1, $2, $3)", [type, JSON.stringify(payload), currentPractice().id]);
 }
 
 /** Claim and run up to `limit` due jobs. Returns how many were processed. */

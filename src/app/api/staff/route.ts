@@ -1,22 +1,23 @@
 import { NextResponse } from "next/server";
 import { demoResetAllowed } from "@/lib/config";
-import { practiceBySlug, PRACTICES, withPractice } from "@/lib/practice";
+import { withPractice } from "@/lib/practice";
 import { ensureSeeded } from "@/lib/seed";
 import { dashboard } from "@/lib/staff";
+import { staffScope } from "@/lib/staffGuard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const slug = new URL(req.url).searchParams.get("practice");
-  const practice = slug ? practiceBySlug(slug) : PRACTICES[0];
-  if (!practice) return NextResponse.json({ error: "Unknown practice" }, { status: 404 });
+  const scope = staffScope(req);
+  if (scope instanceof NextResponse) return scope;
   await ensureSeeded();
-  const data = await withPractice(practice, () => dashboard(practice.id));
+  const data = await withPractice(scope.practice, () => dashboard(scope.practice.id));
   return NextResponse.json({
     ...data,
-    practice: { slug: practice.slug, name: practice.name },
-    practices: PRACTICES.map((p) => ({ slug: p.slug, name: p.name })),
-    demoResetAllowed: demoResetAllowed(),
+    practice: { slug: scope.practice.slug, name: scope.practice.name },
+    practices: scope.practices.map((p) => ({ slug: p.slug, name: p.name })),
+    admin: scope.admin,
+    demoResetAllowed: scope.admin && demoResetAllowed(),
   });
 }
