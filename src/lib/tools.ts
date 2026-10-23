@@ -8,7 +8,7 @@
 
 import { db, transaction, type Q } from "./db";
 import { notifyStaffWebhook } from "./notify";
-import { APPOINTMENT_TYPES, CLOSE_HOUR, OPEN_HOUR, OPEN_WEEKDAYS, SLOT_MINUTES, type AppointmentType } from "./practice";
+import { APPOINTMENT_TYPES, BOOKING_HORIZON_DAYS, CLOSE_HOUR, OPEN_HOUR, OPEN_WEEKDAYS, SLOT_MINUTES, type AppointmentType } from "./practice";
 import { addDays, addMinutes, dayName, fmtDate, fmtTs, humanTs, parseTs, practiceNow, startOfDay, weekday } from "./time";
 
 export { TOOL_DEFINITIONS, type ToolDefinition } from "./tool-definitions";
@@ -57,7 +57,7 @@ interface AppointmentRow {
 }
 
 const MAX_FAILED_VERIFICATIONS = 3;
-const MAX_SEARCH_DAYS = 60;
+const LOCKOUT_MINUTES = 15;
 
 class ToolError extends Error {
   constructor(
@@ -235,7 +235,7 @@ function parseRange(args: Args): { from: Date; to: Date } {
   if (to < from) throw new ToolError("INVALID_RANGE", "date_to is before date_from.");
   if (from < today) from = today;
   if (to < from) to = from;
-  const max = addDays(today, MAX_SEARCH_DAYS);
+  const max = addDays(today, BOOKING_HORIZON_DAYS - 1);
   if (from > max) throw new ToolError("TOO_FAR_AHEAD", "We can only book up to about 8 weeks ahead. Offer to note a callback request or pick an earlier date.");
   if (to > max) to = max;
   return { from, to };
@@ -386,13 +386,18 @@ async function alternativesNear(type: AppointmentType, start: Date) {
 // ---------------------------------------------------------------------------
 // Tool implementations
 
+const LOCKED = () =>
+  fail("VERIFICATION_LOCKED", "Too many failed verification attempts. Do not try again; offer to have the front desk call them back (notify_staff with type callback).");
+
 async function verify_patient(ctx: ToolContext, args: Args): Promise<ToolResult> {
-  if (ctx.failedVerifications >= MAX_FAILED_VERIFICATIONS) {
-    return fail("VERIFICATION_LOCKED", "Too many failed verification attempts. Do not try again; offer to have the front desk call them back (notify_staff with type callback).");
-  }
+  if (ctx.failedVerifications >= MAX_FAILED_VERIFICATIONS) return LOCKED();
   const dob = normDob(args.date_of_birth);
   const name = normName(String(args.full_name ?? ""));
   if (!dob || !name.includes(" ")) return fail("MISSING_INFO", "Need the patient's full name (first and last) and date of birth (YYYY-MM-DD).");
+  // The lockout is also counted per name across all chats, so opening a new chat doesn't reset it.
+  const since = fmtTs(addMinutes(practiceNow(), -LOCKOUT_MINUTES));
+  const recent = await db.get<{ n: number }>("SELECT count(*)::int AS n FROM verification_failures WHERE name_key = $1 AND created_at >= $2", [name, since]);
+  if ((recent?.n ?? 0) >= MAX_FAILED_VERIFICATIONS) return LOCKED();
   const tokens = name.split(" ");
   let match = (await db.all<PatientRow>("SELECT * FROM patients WHERE dob = $1", [dob])).filter(
     (p) => tokens[0] === normName(p.first_name) && tokens[tokens.length - 1] === normName(p.last_name),
@@ -404,6 +409,7 @@ async function verify_patient(ctx: ToolContext, args: Args): Promise<ToolResult>
   }
   if (match.length !== 1) {
     ctx.failedVerifications++;
+    await db.run("INSERT INTO verification_failures (name_key, session_id, created_at) VALUES ($1,$2,$3)", [name, ctx.sessionId, fmtTs(practiceNow())]);
     return fail(
       "NOT_FOUND",
       "No patient record matches that name and date of birth. Don't say which part didn't match. Ask them to double-check spelling and DOB, or offer to register them as a new patient.",

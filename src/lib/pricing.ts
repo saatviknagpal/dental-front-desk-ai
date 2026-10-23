@@ -31,10 +31,6 @@ export interface Usage {
 
 export const emptyUsage = (): Usage => ({ calls: 0, inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, costUsd: 0, llmMs: 0 });
 
-export function isPriced(model: string): boolean {
-  return model in PRICES;
-}
-
 export function costUsd(model: string, inputTokens: number, cachedInputTokens: number, outputTokens: number): number {
   const p = PRICES[model];
   if (!p) return 0;

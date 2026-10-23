@@ -80,6 +80,11 @@ describe("verification guard", () => {
     expect((await call(ctx, "verify_patient", { full_name: "John Smith", date_of_birth: "1985-06-14" })).error).toBe("VERIFICATION_LOCKED");
   });
 
+  it("keeps the lockout when the caller starts a new chat", async () => {
+    for (let i = 0; i < 3; i++) await call(newCtx(`s${i}`), "verify_patient", { full_name: "John Smith", date_of_birth: "1985-06-15" });
+    expect((await call(newCtx("fresh"), "verify_patient", { full_name: "John Smith", date_of_birth: "1985-06-14" })).error).toBe("VERIFICATION_LOCKED");
+  });
+
   it("verifies case/spacing-insensitively and returns upcoming appointments", async () => {
     const r = await call(newCtx(), "verify_patient", { full_name: "  john   SMITH ", date_of_birth: "06/14/1985" });
     expect(r.ok).toBe(true);
