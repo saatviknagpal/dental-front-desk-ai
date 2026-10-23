@@ -1,7 +1,6 @@
-import Chat from "@/components/Chat";
-import { PRACTICE } from "@/lib/practice";
-import { GREETING } from "@/lib/prompt";
+import { redirect } from "next/navigation";
+import { PRACTICES } from "@/lib/practice";
 
 export default function Home() {
-  return <Chat greeting={GREETING} practice={PRACTICE} />;
+  redirect(`/p/${PRACTICES[0].slug}`);
 }

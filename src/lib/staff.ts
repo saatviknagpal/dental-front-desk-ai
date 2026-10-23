@@ -4,14 +4,16 @@ import { db } from "./db";
 import { APPOINTMENT_TYPES, type AppointmentType } from "./practice";
 import { addDays, fmtTs, humanTs, parseTs, practiceNow, startOfDay } from "./time";
 
-export async function dashboard() {
+export async function dashboard(practiceId: number) {
   const now = practiceNow();
   const today = startOfDay(now);
 
   const notifications = await db.all<Record<string, unknown>>(
     `SELECT n.*, p.first_name || ' ' || p.last_name AS patient_name, p.phone AS patient_phone
      FROM notifications n LEFT JOIN patients p ON p.id = n.patient_id
+     WHERE n.practice_id = $1
      ORDER BY n.acknowledged ASC, CASE n.urgency WHEN 'high' THEN 0 ELSE 1 END, n.id DESC LIMIT 50`,
+    [practiceId],
   );
 
   const appointments = (
@@ -19,9 +21,9 @@ export async function dashboard() {
       `SELECT a.id, a.type, a.start_ts, a.status, a.emergency_summary, a.notes, a.session_id, a.updated_at,
               p.first_name || ' ' || p.last_name AS patient_name, p.insurance_name, pr.name AS provider_name
        FROM appointments a JOIN patients p ON p.id = a.patient_id JOIN providers pr ON pr.id = a.provider_id
-       WHERE a.start_ts >= $1 AND a.start_ts < $2
+       WHERE a.start_ts >= $1 AND a.start_ts < $2 AND p.practice_id = $3
        ORDER BY a.start_ts LIMIT 200`,
-      [fmtTs(today), fmtTs(addDays(today, 21))],
+      [fmtTs(today), fmtTs(addDays(today, 21)), practiceId],
     )
   ).map((a) => ({ ...a, label: APPOINTMENT_TYPES[a.type].label, display: humanTs(parseTs(a.start_ts)!), via_chat: !!a.session_id }));
 
@@ -30,15 +32,17 @@ export async function dashboard() {
             (SELECT count(*)::int FROM messages m WHERE m.session_id = s.id AND m.role = 'user') AS user_messages,
             (SELECT content FROM messages m WHERE m.session_id = s.id AND m.role = 'user' ORDER BY m.id LIMIT 1) AS first_message,
             (SELECT count(*)::int FROM messages m WHERE m.session_id = s.id AND m.role = 'tool' AND m.content LIKE '%"ok":false%') AS tool_errors
-     FROM sessions s ORDER BY s.last_active_at DESC LIMIT 40`,
+     FROM sessions s WHERE s.practice_id = $1 ORDER BY s.last_active_at DESC LIMIT 40`,
+    [practiceId],
   );
 
   const stats = await db.get<{ conversations: number; up: number; down: number; chat_bookings: number; total_cost: number }>(
-    `SELECT (SELECT count(*)::int FROM sessions) AS conversations,
-            (SELECT coalesce(sum((usage->>'costUsd')::float), 0) FROM sessions) AS total_cost,
-            (SELECT count(*)::int FROM sessions WHERE rating = 1) AS up,
-            (SELECT count(*)::int FROM sessions WHERE rating = -1) AS down,
-            (SELECT count(*)::int FROM appointments WHERE session_id IS NOT NULL AND status = 'booked') AS chat_bookings`,
+    `SELECT (SELECT count(*)::int FROM sessions WHERE practice_id = $1) AS conversations,
+            (SELECT coalesce(sum((usage->>'costUsd')::float), 0) FROM sessions WHERE practice_id = $1) AS total_cost,
+            (SELECT count(*)::int FROM sessions WHERE practice_id = $1 AND rating = 1) AS up,
+            (SELECT count(*)::int FROM sessions WHERE practice_id = $1 AND rating = -1) AS down,
+            (SELECT count(*)::int FROM appointments a JOIN patients p ON p.id = a.patient_id WHERE p.practice_id = $1 AND a.session_id IS NOT NULL AND a.status = 'booked') AS chat_bookings`,
+    [practiceId],
   );
 
   return {

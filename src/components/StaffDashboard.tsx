@@ -50,6 +50,8 @@ interface Dashboard {
   appointments: Appointment[];
   sessions: SessionSummary[];
   demoResetAllowed: boolean;
+  practice: { slug: string; name: string };
+  practices: { slug: string; name: string }[];
 }
 
 interface TranscriptMessage {
@@ -164,7 +166,8 @@ export default function StaffDashboard() {
 
   const load = useCallback(async () => {
     try {
-      const r = await fetch("/api/staff", { cache: "no-store" });
+      const slug = new URLSearchParams(window.location.search).get("practice") ?? "";
+      const r = await fetch(`/api/staff?practice=${encodeURIComponent(slug)}`, { cache: "no-store" });
       setData(await r.json());
       setError(false);
     } catch {
@@ -199,10 +202,28 @@ export default function StaffDashboard() {
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Front desk dashboard</h1>
-          <p className="text-sm text-muted">Bright Smile Dental · live, refreshes every 5s · {data.now}</p>
+          <p className="text-sm text-muted">
+            <select
+              aria-label="Practice"
+              value={data.practice.slug}
+              onChange={(e) => {
+                window.history.replaceState(null, "", `/staff?practice=${e.target.value}`);
+                setData(null);
+                load();
+              }}
+              className="mr-2 rounded-md border border-border bg-surface px-2 py-1 text-text"
+            >
+              {data.practices.map((p) => (
+                <option key={p.slug} value={p.slug}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            live, refreshes every 5s · {data.now}
+          </p>
         </div>
         <div className="flex gap-2">
-          <Link href="/" className="rounded-lg border border-border px-3 py-2 text-sm hover:bg-surface-2">
+          <Link href={`/p/${data.practice.slug}`} className="rounded-lg border border-border px-3 py-2 text-sm hover:bg-surface-2">
             Open patient chat
           </Link>
           <Link href="/evals" className="rounded-lg border border-border px-3 py-2 text-sm hover:bg-surface-2">

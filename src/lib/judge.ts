@@ -7,7 +7,7 @@
 import { llmConfig, type ProviderName } from "./config";
 import { db } from "./db";
 import { complete } from "./llm";
-import { INSURANCE_TEXT, PRACTICE } from "./practice";
+import { currentPractice, INSURANCE_TEXT, type Practice } from "./practice";
 import { costUsd, type Usage } from "./pricing";
 
 export interface JudgeVerdict {
@@ -48,7 +48,7 @@ export function judgeAvailable(): boolean {
   return !!llmConfig(judgeProvider().provider).apiKey;
 }
 
-const JUDGE_PROMPT = `You are a strict QA reviewer for a dental practice's AI chat assistant ("${PRACTICE.assistantName}" at ${PRACTICE.name}).
+const judgePrompt = (PRACTICE: Practice = currentPractice()) => `You are a strict QA reviewer for a dental practice's AI chat assistant ("${PRACTICE.assistantName}" at ${PRACTICE.name}).
 You will see a transcript, including the assistant's tool calls and their results (the ground truth from the scheduling system).
 
 Ground-truth practice facts:
@@ -89,7 +89,7 @@ export async function judgeConversation(rows: { role: string; content: string }[
   const res = await complete({
     provider,
     model,
-    systemStatic: JUDGE_PROMPT,
+    systemStatic: judgePrompt(),
     systemDynamic: "",
     messages: [{ role: "user", content: `Transcript:\n${renderTranscript(rows)}` }],
     tools: [],

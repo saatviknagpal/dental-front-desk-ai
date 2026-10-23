@@ -8,7 +8,7 @@
 
 import { db, transaction, type Q } from "./db";
 import { enqueue } from "./queue";
-import { APPOINTMENT_TYPES, BOOKING_HORIZON_DAYS, CLOSE_HOUR, OPEN_HOUR, OPEN_WEEKDAYS, SLOT_MINUTES, type AppointmentType } from "./practice";
+import { APPOINTMENT_TYPES, BOOKING_HORIZON_DAYS, currentPractice, CLOSE_HOUR, OPEN_HOUR, OPEN_WEEKDAYS, SLOT_MINUTES, type AppointmentType } from "./practice";
 import { addDays, addMinutes, dayName, fmtDate, fmtTs, humanTs, parseTs, practiceNow, startOfDay, weekday } from "./time";
 
 export { TOOL_DEFINITIONS, type ToolDefinition } from "./tool-definitions";
@@ -127,8 +127,9 @@ function apptType(raw: unknown): AppointmentType {
   return t;
 }
 
-const providers = () => db.all<ProviderRow>("SELECT * FROM providers ORDER BY id");
-const providerById = (id: number) => (Number.isInteger(id) ? db.get<ProviderRow>("SELECT * FROM providers WHERE id = $1", [id]) : Promise.resolve(undefined));
+const pid = () => currentPractice().id;
+const providers = () => db.all<ProviderRow>("SELECT * FROM providers WHERE practice_id = $1 ORDER BY id", [pid()]);
+const providerById = (id: number) => (Number.isInteger(id) ? db.get<ProviderRow>("SELECT * FROM providers WHERE id = $1 AND practice_id = $2", [id, pid()]) : Promise.resolve(undefined));
 const canDo = (p: ProviderRow, t: AppointmentType) => p.services.split(",").includes(t);
 
 async function requireAccess(ctx: ToolContext, patientId: unknown, level: "full" | "booking"): Promise<PatientRow> {
@@ -142,7 +143,7 @@ async function requireAccess(ctx: ToolContext, patientId: unknown, level: "full"
         : "This patient isn't linked to anyone verified in this conversation. Verify or register them first.",
     );
   }
-  const p = await db.get<PatientRow>("SELECT * FROM patients WHERE id = $1", [id]);
+  const p = await db.get<PatientRow>("SELECT * FROM patients WHERE id = $1 AND practice_id = $2", [id, pid()]);
   if (!p) throw new ToolError("PATIENT_NOT_FOUND", "Patient not found.");
   return p;
 }
@@ -332,8 +333,8 @@ async function assertNoPatientOverlap(tx: Q, patientId: number, start: Date, typ
 /** Store a staff alert and queue its outside delivery (webhook) in the same transaction. */
 async function insertNotification(q: Q, type: string, urgency: string, summary: string, sessionId: string, patientId: number | null) {
   const r = await q.get<{ id: number }>(
-    "INSERT INTO notifications (type, urgency, patient_id, summary, session_id, created_at) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
-    [type, urgency, patientId, summary, sessionId, fmtTs(practiceNow())],
+    "INSERT INTO notifications (type, urgency, patient_id, summary, session_id, created_at, practice_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
+    [type, urgency, patientId, summary, sessionId, fmtTs(practiceNow()), pid()],
   );
   await enqueue(q, "staff_alert", { notification_id: r!.id, type, urgency, text: summary });
   return r!.id;
@@ -398,10 +399,10 @@ async function verify_patient(ctx: ToolContext, args: Args): Promise<ToolResult>
   if (!dob || !name.includes(" ")) return fail("MISSING_INFO", "Need the patient's full name (first and last) and date of birth (YYYY-MM-DD).");
   // The lockout is also counted per name across all chats, so opening a new chat doesn't reset it.
   const since = fmtTs(addMinutes(practiceNow(), -LOCKOUT_MINUTES));
-  const recent = await db.get<{ n: number }>("SELECT count(*)::int AS n FROM verification_failures WHERE name_key = $1 AND created_at >= $2", [name, since]);
+  const recent = await db.get<{ n: number }>("SELECT count(*)::int AS n FROM verification_failures WHERE name_key = $1 AND created_at >= $2", [`${pid()}:${name}`, since]);
   if ((recent?.n ?? 0) >= MAX_FAILED_VERIFICATIONS) return LOCKED();
   const tokens = name.split(" ");
-  let match = (await db.all<PatientRow>("SELECT * FROM patients WHERE dob = $1", [dob])).filter(
+  let match = (await db.all<PatientRow>("SELECT * FROM patients WHERE dob = $1 AND practice_id = $2", [dob, pid()])).filter(
     (p) => tokens[0] === normName(p.first_name) && tokens[tokens.length - 1] === normName(p.last_name),
   );
   const phone = normPhone(args.phone);
@@ -411,7 +412,7 @@ async function verify_patient(ctx: ToolContext, args: Args): Promise<ToolResult>
   }
   if (match.length !== 1) {
     ctx.failedVerifications++;
-    await db.run("INSERT INTO verification_failures (name_key, session_id, created_at) VALUES ($1,$2,$3)", [name, ctx.sessionId, fmtTs(practiceNow())]);
+    await db.run("INSERT INTO verification_failures (name_key, session_id, created_at) VALUES ($1,$2,$3)", [`${pid()}:${name}`, ctx.sessionId, fmtTs(practiceNow())]);
     return fail(
       "NOT_FOUND",
       "No patient record matches that name and date of birth. Don't say which part didn't match. Ask them to double-check spelling and DOB, or offer to register them as a new patient.",
@@ -467,7 +468,7 @@ async function register_patient(ctx: ToolContext, args: Args): Promise<ToolResul
   const phone = normPhone(args.phone) ?? guardianPhone;
   if (!phone) return fail("INVALID_PHONE", "Need a valid 10-digit US phone number.");
 
-  const dup = (await db.all<PatientRow>("SELECT * FROM patients WHERE dob = $1", [dob])).find(
+  const dup = (await db.all<PatientRow>("SELECT * FROM patients WHERE dob = $1 AND practice_id = $2", [dob, pid()])).find(
     (p) => normName(p.first_name) === normName(first) && normName(p.last_name) === normName(last),
   );
   if (dup) return fail("ALREADY_REGISTERED", "A patient with this name and date of birth is already on file. Treat them as an existing patient and use verify_patient.");
@@ -475,8 +476,8 @@ async function register_patient(ctx: ToolContext, args: Args): Promise<ToolResul
   const insurance = normInsurance(args.insurance_name);
   const id = await transaction(async (tx) => {
     const r = await tx.get<{ id: number }>(
-      "INSERT INTO patients (first_name, last_name, dob, phone, insurance_name, household_id, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
-      [first, last, dob, phone, insurance, householdId, fmtTs(now)],
+      "INSERT INTO patients (first_name, last_name, dob, phone, insurance_name, household_id, created_at, practice_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id",
+      [first, last, dob, phone, insurance, householdId, fmtTs(now), pid()],
     );
     if (householdId === null) await tx.run("UPDATE patients SET household_id = id WHERE id = $1", [r!.id]);
     return r!.id;

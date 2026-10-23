@@ -8,6 +8,7 @@
 import "dotenv/config";
 import { closeDb, db } from "../src/lib/db";
 import { judgeAvailable, judgeProvider, judgeSession } from "../src/lib/judge";
+import { PRACTICES, withPractice } from "../src/lib/practice";
 
 async function main() {
   if (!judgeAvailable()) {
@@ -16,15 +17,16 @@ async function main() {
     return;
   }
   const all = process.argv.includes("--all");
-  const sessions = await db.all<{ id: string }>(
-    `SELECT s.id FROM sessions s
+  const sessions = await db.all<{ id: string; practice_id: number }>(
+    `SELECT s.id, s.practice_id FROM sessions s
      WHERE (SELECT count(*) FROM messages m WHERE m.session_id = s.id AND m.role = 'user') >= 2 ${all ? "" : "AND s.judge IS NULL"}
      ORDER BY s.last_active_at DESC LIMIT 50`,
   );
   console.log(`Judging ${sessions.length} conversations with ${judgeProvider().provider}:${judgeProvider().model}…`);
   let flagged = 0;
   for (const s of sessions) {
-    const v = await judgeSession(s.id);
+    const practice = PRACTICES.find((p) => p.id === s.practice_id) ?? PRACTICES[0];
+    const v = await withPractice(practice, () => judgeSession(s.id));
     await db.run("UPDATE sessions SET judge = $1 WHERE id = $2", [JSON.stringify(v), s.id]);
     if (!v.pass) flagged++;
     console.log(`${v.pass ? "ok  " : "FLAG"} ${s.id.slice(0, 8)} tone=${v.tone} clarity=${v.clarity} redundancy=${v.redundancy}${v.hallucination ? " HALLUCINATION" : ""}${v.policy_violations.length ? ` violations=${v.policy_violations.join("; ")}` : ""}`);

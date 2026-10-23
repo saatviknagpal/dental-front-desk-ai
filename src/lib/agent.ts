@@ -6,9 +6,9 @@ import { llmConfig } from "./config";
 import { db } from "./db";
 import { checkOutput, MAX_TURNS_PER_SESSION, moderateInput } from "./guardrails";
 import { complete, llmReady, type ChatMessage, type CompletionResponse } from "./llm";
-import { PRACTICE } from "./practice";
+import { currentPractice } from "./practice";
 import { addUsage, costUsd, emptyUsage, type Usage } from "./pricing";
-import { SYSTEM_STATIC, systemDynamic } from "./prompt";
+import { systemDynamic, systemStatic } from "./prompt";
 import { ensureSeeded } from "./seed";
 import { fmtTs, practiceNow } from "./time";
 import { executeTool, TOOL_DEFINITIONS, type ToolContext } from "./tools";
@@ -42,10 +42,11 @@ interface SessionRow {
   failed_verifications: number;
 }
 
-const FALLBACK_REPLY = `I'm sorry, I'm having trouble on my end right now. You can call us at ${PRACTICE.phone} (Mon-Sat, 8 AM-6 PM), or try again in a moment. If this is a dental emergency with trouble breathing, swallowing or uncontrolled bleeding, please call 911.`;
+const fallbackReply = () => `I'm sorry, I'm having trouble on my end right now. You can call us at ${currentPractice().phone} (Mon-Sat, 8 AM-6 PM), or try again in a moment. If this is a dental emergency with trouble breathing, swallowing or uncontrolled bleeding, please call 911.`;
 
 async function loadSession(sessionId: string | undefined): Promise<{ id: string; messages: ChatMessage[]; ctx: ToolContext }> {
-  const row = sessionId ? await db.get<SessionRow>("SELECT * FROM sessions WHERE id = $1", [sessionId]) : undefined;
+  const practiceId = currentPractice().id;
+  const row = sessionId ? await db.get<SessionRow>("SELECT * FROM sessions WHERE id = $1 AND practice_id = $2", [sessionId, practiceId]) : undefined;
   if (row) {
     return {
       id: row.id,
@@ -55,7 +56,7 @@ async function loadSession(sessionId: string | undefined): Promise<{ id: string;
   }
   const id = randomUUID();
   const now = fmtTs(practiceNow());
-  await db.run("INSERT INTO sessions (id, started_at, last_active_at, model) VALUES ($1,$2,$2,$3)", [id, now, llmConfig().model]);
+  await db.run("INSERT INTO sessions (id, practice_id, started_at, last_active_at, model) VALUES ($1,$2,$3,$3,$4)", [id, practiceId, now, llmConfig().model]);
   return { id, messages: [], ctx: { sessionId: id, verified: [], household: [], failedVerifications: 0 } };
 }
 
@@ -92,7 +93,7 @@ async function callModel(messages: ChatMessage[]): Promise<CompletionResponse & 
   for (const model of models) {
     try {
       const started = Date.now();
-      const res = await complete({ systemStatic: SYSTEM_STATIC, systemDynamic: systemDynamic(), messages, tools: TOOL_DEFINITIONS, model });
+      const res = await complete({ systemStatic: systemStatic(), systemDynamic: systemDynamic(), messages, tools: TOOL_DEFINITIONS, model });
       return { ...res, model, ms: Date.now() - started };
     } catch (err) {
       lastErr = err;
@@ -120,13 +121,13 @@ export async function runTurn(sessionId: string | undefined, userText: string): 
   const moderation = await moderateInput(text);
 
   if ((turns?.n ?? 0) > MAX_TURNS_PER_SESSION) {
-    reply = `This chat has gotten quite long. Please start a new chat, or call us at ${PRACTICE.phone} and the front desk will help.`;
+    reply = `This chat has gotten quite long. Please start a new chat, or call us at ${currentPractice().phone} and the front desk will help.`;
     await logMessage(session.id, "guardrail", JSON.stringify({ rule: "max-turns", limit: MAX_TURNS_PER_SESSION }));
   } else if (!moderation.ok) {
     reply = moderation.reply;
     await logMessage(session.id, "guardrail", JSON.stringify({ rule: "moderation", reason: moderation.reason }));
   } else if (!llmReady()) {
-    reply = "The assistant isn't configured yet (missing LLM_API_KEY). " + FALLBACK_REPLY;
+    reply = "The assistant isn't configured yet (missing LLM_API_KEY). " + fallbackReply();
     degraded = true;
   } else {
     try {
@@ -165,12 +166,12 @@ export async function runTurn(sessionId: string | undefined, userText: string): 
       }
       if (!reply) {
         // Too many tool rounds: stop looping and hand off rather than spin.
-        reply = `I'm sorry, I'm having trouble finishing that. I've asked our front desk to follow up, or you can call us at ${PRACTICE.phone}.`;
+        reply = `I'm sorry, I'm having trouble finishing that. I've asked our front desk to follow up, or you can call us at ${currentPractice().phone}.`;
         await executeTool(ctx, "notify_staff", { type: "human_handoff", urgency: "normal", summary: "Assistant hit its tool-call limit mid-conversation; please review the transcript and follow up." });
         degraded = true;
       }
     } catch {
-      reply = FALLBACK_REPLY;
+      reply = fallbackReply();
       degraded = true;
     }
   }

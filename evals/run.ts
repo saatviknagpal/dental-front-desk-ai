@@ -62,7 +62,7 @@ async function worker(id: string, rep: number) {
   const { runTurn } = await import("../src/lib/agent");
   const { closeDb, db } = await import("../src/lib/db");
   const { complete } = await import("../src/lib/llm");
-  const { GREETING } = await import("../src/lib/prompt");
+  const { greeting } = await import("../src/lib/prompt");
   const { seed } = await import("../src/lib/seed");
   const { addUsage, emptyUsage } = await import("../src/lib/pricing");
   const { judgeAvailable, judgeSession } = await import("../src/lib/judge");
@@ -102,7 +102,7 @@ Rules:
       if (s.afterTurn) await s.afterTurn(turn, i, sessionId);
 
       // From the simulated patient's point of view, the bot is the "user".
-      const messages: { role: "user" | "assistant"; content: string }[] = [{ role: "user", content: GREETING }];
+      const messages: { role: "user" | "assistant"; content: string }[] = [{ role: "user", content: greeting() }];
       for (const t of turns) messages.push({ role: "assistant", content: t.user }, { role: "user", content: t.reply });
       const res = await complete({
         systemStatic: patientSystem,

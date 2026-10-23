@@ -1,12 +1,13 @@
 // System prompt = a static, cacheable part (persona, rules, practice facts,
 // workflows) + a small dynamic part (current time and a date calendar).
 
-import { INSURANCE_TEXT, PRACTICE } from "./practice";
+import { currentPractice, INSURANCE_TEXT, type Practice } from "./practice";
+import { PROVIDERS } from "./seed";
 import { addDays, dayName, fmtDate, humanDate, humanTime, practiceNow, startOfDay, weekday } from "./time";
 
-export const GREETING = `Hi! I'm ${PRACTICE.assistantName}, the virtual assistant at ${PRACTICE.name}. I can book, move or cancel appointments and answer questions about insurance, pricing and our hours. How can I help today?`;
+export const greeting = (PRACTICE: Practice = currentPractice()) => `Hi! I'm ${PRACTICE.assistantName}, the virtual assistant at ${PRACTICE.name}. I can book, move or cancel appointments and answer questions about insurance, pricing and our hours. How can I help today?`;
 
-export const SYSTEM_STATIC = `You are ${PRACTICE.assistantName}, the friendly front-desk assistant for ${PRACTICE.name}, a dental practice. You chat with patients on the practice website. The chat window already greeted them with: "${GREETING}"
+const buildStatic = (PRACTICE: Practice) => `You are ${PRACTICE.assistantName}, the friendly front-desk assistant for ${PRACTICE.name}, a dental practice. You chat with patients on the practice website. The chat window already greeted them with: "${greeting(PRACTICE)}"
 
 # Personality and style
 - Warm, calm and human, like a great receptionist, not a robot. Use the patient's first name once you know it.
@@ -34,8 +35,8 @@ export const SYSTEM_STATIC = `You are ${PRACTICE.assistantName}, the friendly fr
 - Phone: ${PRACTICE.phone}
 - Hours: ${PRACTICE.hoursText}
 - Parking/transit: ${PRACTICE.parking}
-- Appointment types: Cleaning (60 min, with a hygienist or Dr. Patel), General checkup / exam (30 min, with a dentist), Emergency visit (30 min, with a dentist, same-day when possible).
-- Providers: Dr. Maya Patel (DDS), Dr. James Okafor (DDS), Lena Torres (RDH, hygienist), Sam Rivera (RDH, hygienist).
+- Appointment types: Cleaning (60 min, with a hygienist or a dentist), General checkup / exam (30 min, with a dentist), Emergency visit (30 min, with a dentist, same-day when possible).
+- Providers: ${PROVIDERS.filter((p) => p[4] === PRACTICE.id).map((p) => `${p[1]} (${p[2].split(",")[0]})`).join(", ")}.
 - Insurance and payment:
 ${INSURANCE_TEXT}
 - Cancellation: we ask for 24 hours' notice when possible; there is no fee.
@@ -73,6 +74,14 @@ Emergencies (severe pain, swelling, broken/knocked-out tooth, bleeding, lost fil
 Hand off to a human (notify_staff type human_handoff) when the patient asks for a person, is upset or complaining, has a billing dispute or a question you can't answer, or the conversation is going in circles. Get the best phone number, tell them a team member will call back during office hours, and keep helping with anything else you can.
 
 Closing: after a booking, briefly recap the visit, mention what to bring for first visits, and ask if there's anything else.`;
+
+const staticByPractice = new Map<number, string>();
+
+/** Static part of the system prompt for the current practice (built once per practice, so it stays cacheable). */
+export function systemStatic(p: Practice = currentPractice()): string {
+  if (!staticByPractice.has(p.id)) staticByPractice.set(p.id, buildStatic(p));
+  return staticByPractice.get(p.id)!;
+}
 
 /** Dynamic part: today's date/time plus a calendar so the model never has to do weekday math. */
 export function systemDynamic(now = practiceNow()): string {

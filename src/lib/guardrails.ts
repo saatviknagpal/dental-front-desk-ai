@@ -6,7 +6,7 @@
 import OpenAI from "openai";
 import { llmConfig } from "./config";
 import { db } from "./db";
-import { PRACTICE } from "./practice";
+import { currentPractice } from "./practice";
 import { rateLimit } from "./ratelimit";
 
 export const MAX_TURNS_PER_SESSION = 40;
@@ -15,7 +15,7 @@ export const REQUESTS_PER_MINUTE_PER_CALLER = 20;
 export type InputVerdict = { ok: true } | { ok: false; reason: string; reply: string };
 
 const CRISIS_REPLY = `I'm really sorry you're going through this. I'm only a scheduling assistant, but you deserve support right now. In the US you can call or text 988 (Suicide & Crisis Lifeline) any time, or call 911 if you're in danger. If there's anything about your dental care I can help with, I'm here.`;
-const ABUSE_REPLY = `I'm here to help with appointments and questions about ${PRACTICE.name}. I can't continue with messages like that, but I'm glad to help with scheduling, insurance or our hours.`;
+const abuseReply = () => `I'm here to help with appointments and questions about ${currentPractice().name}. I can't continue with messages like that, but I'm glad to help with scheduling, insurance or our hours.`;
 const LEAK_REPLY = `For privacy, I can't share details about other patients. I can help with your own appointments once I verify your full name and date of birth.`;
 
 let moderationClient: OpenAI | undefined;
@@ -31,7 +31,7 @@ export async function moderateInput(text: string): Promise<InputVerdict> {
     if (!r?.flagged) return { ok: true };
     const c = r.categories as unknown as Record<string, boolean>;
     if (c["self-harm"] || c["self-harm/intent"] || c["self-harm/instructions"]) return { ok: false, reason: "self-harm", reply: CRISIS_REPLY };
-    if (c["harassment/threatening"] || c["violence"] || c["hate/threatening"] || c["harassment"] || c["hate"]) return { ok: false, reason: "abuse", reply: ABUSE_REPLY };
+    if (c["harassment/threatening"] || c["violence"] || c["hate/threatening"] || c["harassment"] || c["hate"]) return { ok: false, reason: "abuse", reply: abuseReply() };
     return { ok: true };
   } catch {
     return { ok: true };

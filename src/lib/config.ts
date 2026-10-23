@@ -1,6 +1,8 @@
 // Runtime configuration from environment variables (.env / .env.local).
 // Read lazily so tests and evals can override process.env before use.
 
+import { currentPractice } from "./practice";
+
 export type ProviderName = "openai" | "gemini" | "deepseek" | "anthropic" | "custom";
 
 const PROVIDER_DEFAULTS: Record<ProviderName, { baseURL: string; model: string }> = {
@@ -31,7 +33,7 @@ export function llmConfig(override?: ProviderName) {
 }
 
 export function practiceTimezone(): string {
-  return process.env.PRACTICE_TIMEZONE || "America/Los_Angeles";
+  return currentPractice().timezone;
 }
 
 export function staffWebhookUrl(): string {

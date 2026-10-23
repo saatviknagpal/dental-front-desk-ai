@@ -6,23 +6,29 @@ import { db, transaction, truncateAll, type Q } from "./db";
 import { APPOINTMENT_TYPES, BOOKING_HORIZON_DAYS, CLOSE_HOUR, OPEN_HOUR, OPEN_WEEKDAYS, SLOT_MINUTES, type AppointmentType } from "./practice";
 import { addDays, addMinutes, fmtTs, parseTs, practiceNow, startOfDay, weekday } from "./time";
 
-export const PROVIDERS: [number, string, string, string][] = [
-  [1, "Dr. Maya Patel", "DDS, General Dentist", "checkup,emergency,cleaning"],
-  [2, "Dr. James Okafor", "DDS, General Dentist", "checkup,emergency"],
-  [3, "Lena Torres", "RDH, Dental Hygienist", "cleaning"],
-  [4, "Sam Rivera", "RDH, Dental Hygienist", "cleaning"],
+// id, name, title, services, practice_id
+export const PROVIDERS: [number, string, string, string, number][] = [
+  [1, "Dr. Maya Patel", "DDS, General Dentist", "checkup,emergency,cleaning", 1],
+  [2, "Dr. James Okafor", "DDS, General Dentist", "checkup,emergency", 1],
+  [3, "Lena Torres", "RDH, Dental Hygienist", "cleaning", 1],
+  [4, "Sam Rivera", "RDH, Dental Hygienist", "cleaning", 1],
+  [5, "Dr. Priya Raman", "DDS, General Dentist", "checkup,emergency,cleaning", 2],
+  [6, "Dr. Owen Walsh", "DDS, General Dentist", "checkup,emergency", 2],
+  [7, "Kim Nguyen", "RDH, Dental Hygienist", "cleaning", 2],
 ];
 
-// id, first, last, dob, phone, insurance (null = self-pay), household_id
-export const PATIENTS: [number, string, string, string, string, string | null, number][] = [
-  [1, "John", "Smith", "1985-06-14", "4155550101", "Delta Dental", 1],
-  [2, "Emily", "Chen", "1990-11-02", "4155550102", "Cigna", 2],
-  [3, "David", "Kim", "1978-01-23", "4155550103", "MetLife", 3],
-  [4, "Maria", "Garcia", "1987-04-09", "4155550104", "Aetna", 4],
-  [5, "Carlos", "Garcia", "1985-08-30", "4155550105", "Aetna", 4],
-  [6, "Sofia", "Garcia", "2017-02-15", "4155550104", "Aetna", 4],
-  [7, "Mateo", "Garcia", "2020-07-04", "4155550104", "Aetna", 4],
-  [8, "Robert", "Brown", "1960-09-12", "4155550106", null, 8],
+// id, first, last, dob, phone, insurance (null = self-pay), household_id, practice_id
+export const PATIENTS: [number, string, string, string, string, string | null, number, number][] = [
+  [1, "John", "Smith", "1985-06-14", "4155550101", "Delta Dental", 1, 1],
+  [2, "Emily", "Chen", "1990-11-02", "4155550102", "Cigna", 2, 1],
+  [3, "David", "Kim", "1978-01-23", "4155550103", "MetLife", 3, 1],
+  [4, "Maria", "Garcia", "1987-04-09", "4155550104", "Aetna", 4, 1],
+  [5, "Carlos", "Garcia", "1985-08-30", "4155550105", "Aetna", 4, 1],
+  [6, "Sofia", "Garcia", "2017-02-15", "4155550104", "Aetna", 4, 1],
+  [7, "Mateo", "Garcia", "2020-07-04", "4155550104", "Aetna", 4, 1],
+  [8, "Robert", "Brown", "1960-09-12", "4155550106", null, 8, 1],
+  [9, "Ana", "Lopez", "1992-03-03", "6175550111", "Delta Dental", 9, 2],
+  [10, "Tom", "Becker", "1975-12-01", "6175550112", null, 10, 2],
 ];
 
 // patient_id, type, days from today, earliest hour
@@ -31,6 +37,7 @@ const EXISTING_APPOINTMENTS: [number, AppointmentType, number, number][] = [
   [2, "cleaning", 4, 14],
   [3, "checkup", 6, 9],
   [8, "cleaning", 12, 11],
+  [9, "checkup", 5, 9],
 ];
 
 /** Small deterministic PRNG (mulberry32). */
@@ -95,11 +102,11 @@ export async function seed({ reset = false, rngSeed = 42 } = {}): Promise<void> 
   }
 
   await transaction(async (tx) => {
-    await bulkInsert(tx, "providers", ["id", "name", "title", "services"], PROVIDERS);
+    await bulkInsert(tx, "providers", ["id", "name", "title", "services", "practice_id"], PROVIDERS);
     await bulkInsert(
       tx,
       "patients",
-      ["id", "first_name", "last_name", "dob", "phone", "insurance_name", "household_id", "created_at"],
+      ["id", "first_name", "last_name", "dob", "phone", "insurance_name", "household_id", "practice_id", "created_at"],
       PATIENTS.map((p) => [...p, created]),
     );
     // Explicit ids above: move the identity sequence past them.
@@ -116,7 +123,8 @@ async function seedAppointment(tx: Q, patientId: number, type: AppointmentType, 
   const { minutes } = APPOINTMENT_TYPES[type];
   const n = minutes / SLOT_MINUTES;
   // Most specialized provider first (hygienists for cleanings).
-  const capable = PROVIDERS.filter((p) => p[3].split(",").includes(type))
+  const practiceId = PATIENTS.find((p) => p[0] === patientId)![7];
+  const capable = PROVIDERS.filter((p) => p[4] === practiceId && p[3].split(",").includes(type))
     .sort((a, b) => a[3].split(",").length - b[3].split(",").length)
     .map((p) => p[0]);
   const open = await tx.all<{ provider_id: number; start_ts: string }>(

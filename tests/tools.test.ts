@@ -31,9 +31,9 @@ beforeEach(async () => {
 
 describe("seed", () => {
   it("creates providers, patients, slots and existing appointments", async () => {
-    expect(await all("SELECT * FROM providers")).toHaveLength(4);
-    expect(await all("SELECT * FROM patients")).toHaveLength(8);
-    expect(await all("SELECT * FROM appointments WHERE status='booked'")).toHaveLength(4);
+    expect(await all("SELECT * FROM providers")).toHaveLength(7); // 2 practices
+    expect(await all("SELECT * FROM patients")).toHaveLength(10);
+    expect(await all("SELECT * FROM appointments WHERE status='booked'")).toHaveLength(5);
     expect(await get("SELECT count(*)::int AS n FROM slots WHERE start_ts LIKE '2026-10-25%'")).toEqual({ n: 0 }); // Sunday
   });
 });

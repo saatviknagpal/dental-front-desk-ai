@@ -21,7 +21,7 @@ interface Message {
 
 interface Props {
   greeting: string;
-  practice: { name: string; assistantName: string; address: string; phone: string; hoursText: string; parking: string };
+  practice: { slug: string; name: string; assistantName: string; address: string; phone: string; hoursText: string; parking: string };
 }
 
 const QUICK_REPLIES = [
@@ -178,7 +178,7 @@ export default function Chat({ greeting, practice }: Props) {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId, message: trimmed }),
+          body: JSON.stringify({ sessionId, message: trimmed, practice: practice.slug }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Request failed");
@@ -196,7 +196,7 @@ export default function Chat({ greeting, practice }: Props) {
         inputRef.current?.focus();
       }
     },
-    [pending, sessionId, practice.phone],
+    [pending, sessionId, practice.phone, practice.slug],
   );
 
   const sendFeedback = async (value: 1 | -1, text?: string) => {
@@ -275,7 +275,7 @@ export default function Chat({ greeting, practice }: Props) {
               <span>Show assistant steps (demo)</span>
               <input type="checkbox" className="size-4 accent-[var(--brand)]" checked={showSteps} onChange={(e) => setShowSteps(e.target.checked)} />
             </label>
-            <Link href="/staff" className="block pt-1 text-muted underline-offset-2 hover:underline">
+            <Link href={`/staff?practice=${practice.slug}`} className="block pt-1 text-muted underline-offset-2 hover:underline">
               Staff dashboard →
             </Link>
           </section>
