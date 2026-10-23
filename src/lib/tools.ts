@@ -7,7 +7,7 @@
 //  - Errors come back as { ok: false, error, message } so the model can recover gracefully.
 
 import { db, transaction, type Q } from "./db";
-import { notifyStaffWebhook } from "./notify";
+import { enqueue } from "./queue";
 import { APPOINTMENT_TYPES, BOOKING_HORIZON_DAYS, CLOSE_HOUR, OPEN_HOUR, OPEN_WEEKDAYS, SLOT_MINUTES, type AppointmentType } from "./practice";
 import { addDays, addMinutes, dayName, fmtDate, fmtTs, humanTs, parseTs, practiceNow, startOfDay, weekday } from "./time";
 
@@ -329,11 +329,13 @@ async function assertNoPatientOverlap(tx: Q, patientId: number, start: Date, typ
   if (clash) throw new ToolError("PATIENT_CONFLICT", `This patient already has an appointment at ${humanTs(parseTs(clash.start_ts)!)}.`);
 }
 
+/** Store a staff alert and queue its outside delivery (webhook) in the same transaction. */
 async function insertNotification(q: Q, type: string, urgency: string, summary: string, sessionId: string, patientId: number | null) {
   const r = await q.get<{ id: number }>(
     "INSERT INTO notifications (type, urgency, patient_id, summary, session_id, created_at) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
     [type, urgency, patientId, summary, sessionId, fmtTs(practiceNow())],
   );
+  await enqueue(q, "staff_alert", { notification_id: r!.id, type, urgency, text: summary });
   return r!.id;
 }
 
@@ -555,7 +557,6 @@ async function book_appointment(ctx: ToolContext, args: Args): Promise<ToolResul
           : null;
       return { booked, notificationId };
     });
-    if (result.notificationId) void notifyStaffWebhook({ type: "emergency", urgency: "high", text: `Emergency: ${result.booked.patient_name} – ${summary}` });
     return {
       ok: true,
       appointment: result.booked,
@@ -712,8 +713,7 @@ async function notify_staff(ctx: ToolContext, args: Args): Promise<ToolResult> {
   const patientId = ctx.verified.includes(pid) || ctx.household.includes(pid) ? pid : null;
   const phone = normPhone(args.callback_phone);
   const text = phone ? `${summary} (callback: ${phone})` : summary;
-  const id = await insertNotification(db, type, urgency, text, ctx.sessionId, patientId);
-  void notifyStaffWebhook({ type, urgency, text });
+  const id = await transaction((tx) => insertNotification(tx, type, urgency, text, ctx.sessionId, patientId));
   return { ok: true, notification_id: id, message: "Staff have been notified." };
 }
 
