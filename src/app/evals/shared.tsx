@@ -177,7 +177,7 @@ export function RunDetail({ r, steps, openTrajectory = false }: { r: ResultRow; 
       {isJudge(r.judge) ? (
         <div className={`rounded-xl px-4 py-3 text-sm ${r.judge.pass ? "bg-surface-2" : "bg-warn-soft"}`}>
           <div className="mb-1 font-bold">
-            Judge's grade: {r.judge.pass ? "pass" : "fail"} <span className="font-normal text-muted">({r.judge.judge_model})</span>
+            Judge&apos;s grade: {r.judge.pass ? "pass" : "fail"} <span className="font-normal text-muted">({r.judge.judge_model})</span>
           </div>
           <p className="mb-2">{r.judge.summary}</p>
           <table className="w-full text-left text-xs">
