@@ -23,5 +23,9 @@ services:
         sync: false
       - key: RESEND_API_KEY
         sync: false
+      - key: EVAL_JUDGE_PROVIDER
+        value: gemini
+      - key: GEMINI_API_KEY
+        sync: false
       - key: ALLOW_DEMO_RESET
         value: "true"

@@ -58,6 +58,7 @@ async function worker(id: string, rep: number) {
   process.env.PGLITE_DIR = "";
   process.env.NOW_OVERRIDE = "2026-10-23 10:00";
   process.env.STAFF_WEBHOOK_URL = "";
+  process.env.STAFF_WEBHOOKS = "";
 
   const { runTurn } = await import("../src/lib/agent");
   const { closeDb, db } = await import("../src/lib/db");
