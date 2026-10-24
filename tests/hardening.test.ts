@@ -41,6 +41,22 @@ describe("one turn at a time per chat", () => {
   });
 });
 
+describe("idempotency key", () => {
+  it("answers a retried request from the saved reply instead of running it again", async () => {
+    const first = await runTurn(undefined, "hello", "x", "req-retry-1");
+    const again = await runTurn(undefined, "hello", "x", "req-retry-1");
+    expect(again).toEqual(first);
+    const n = await db.get<{ n: number }>("SELECT count(*)::int AS n FROM messages WHERE session_id = $1 AND role = 'user'", [first.sessionId]);
+    expect(n?.n).toBe(1);
+    expect((await db.get<{ n: number }>("SELECT count(*)::int AS n FROM sessions"))?.n).toBe(1);
+  });
+
+  it("says busy while the same request is still running", async () => {
+    await db.run("INSERT INTO chat_requests (request_id) VALUES ('req-inflight')");
+    await expect(runTurn(undefined, "hello", "x", "req-inflight")).rejects.toBeInstanceOf(SessionBusyError);
+  });
+});
+
 describe("confirmation email delivery errors", () => {
   const payload = {
     to: "a@example.com",

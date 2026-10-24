@@ -152,7 +152,26 @@ async function callModel(messages: ChatMessage[]): Promise<CompletionResponse & 
   throw lastErr;
 }
 
-export async function runTurn(sessionId: string | undefined, userText: string, caller?: string): Promise<TurnResult> {
+export async function runTurn(sessionId: string | undefined, userText: string, caller?: string, requestId?: string): Promise<TurnResult> {
+  if (!requestId) return runTurnOnce(sessionId, userText, caller);
+  // Claim the id first; a second request with the same id gets the saved reply, or "busy" while the first still runs.
+  const claimed = await db.get("INSERT INTO chat_requests (request_id) VALUES ($1) ON CONFLICT DO NOTHING RETURNING request_id", [requestId]);
+  if (!claimed) {
+    const prev = await db.get<{ response: TurnResult | null }>("SELECT response FROM chat_requests WHERE request_id = $1", [requestId]);
+    if (prev?.response) return prev.response;
+    throw new SessionBusyError();
+  }
+  try {
+    const result = await runTurnOnce(sessionId, userText, caller);
+    await db.run("UPDATE chat_requests SET response = $2 WHERE request_id = $1", [requestId, JSON.stringify(result)]);
+    return result;
+  } catch (err) {
+    await db.run("DELETE FROM chat_requests WHERE request_id = $1", [requestId]); // let a retry run it
+    throw err;
+  }
+}
+
+async function runTurnOnce(sessionId: string | undefined, userText: string, caller?: string): Promise<TurnResult> {
   await ensureSeeded();
   const session = await loadSession(sessionId, caller);
   try {

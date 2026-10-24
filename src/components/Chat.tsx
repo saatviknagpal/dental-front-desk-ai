@@ -138,6 +138,8 @@ export default function Chat({ greeting, practice }: Props) {
   const [infoOpen, setInfoOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // Resending the same text after a failure reuses its request id, so the server never runs it twice.
+  const retryRef = useRef<{ text: string; id: string } | null>(null);
 
   // Restore per-viewer prefs. Conversations always start fresh on reload (privacy on shared computers).
   useEffect(() => {
@@ -173,14 +175,17 @@ export default function Chat({ greeting, practice }: Props) {
       const userMsg: Message = { id: uid(), role: "user", text: trimmed };
       setMessages((m) => [...m.filter((x) => !x.failed), userMsg]);
       setPending(true);
+      const requestId = retryRef.current?.text === trimmed ? retryRef.current.id : crypto.randomUUID();
+      retryRef.current = { text: trimmed, id: requestId };
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId, message: trimmed, practice: practice.slug }),
+          body: JSON.stringify({ sessionId, message: trimmed, practice: practice.slug, requestId }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Request failed");
+        retryRef.current = null;
         setSessionId(data.sessionId);
         store.set(SESSION_KEY, data.sessionId);
         setMessages((m) => [...m, { id: uid(), role: "assistant", text: data.reply, toolEvents: data.toolEvents, bookings: data.bookings, choices: data.choices }]);

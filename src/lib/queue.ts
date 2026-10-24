@@ -62,6 +62,7 @@ export async function processJobs(limit = 10, handlers: Record<string, Handler> 
 export async function requeueStuckJobs(): Promise<void> {
   await db.run("UPDATE jobs SET status = 'pending' WHERE status = 'running' AND locked_at < now() - interval '5 minutes'");
   await db.run("DELETE FROM jobs WHERE status = 'done' AND finished_at < now() - interval '7 days'");
+  await db.run("DELETE FROM chat_requests WHERE created_at < now() - interval '1 day'");
 }
 
 let started = false;
