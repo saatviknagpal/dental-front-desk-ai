@@ -36,7 +36,7 @@ export async function dashboard(practiceId: number, opts: { range?: AppointmentR
   const apptRows = (
     await db.all<{ type: AppointmentType; start_ts: string; session_id: string | null; [k: string]: unknown }>(
       `SELECT a.id, a.type, a.start_ts, a.status, a.emergency_summary, a.notes, a.session_id, a.updated_at,
-              p.first_name || ' ' || p.last_name AS patient_name, p.insurance_name, pr.name AS provider_name
+              p.first_name || ' ' || p.last_name AS patient_name, p.insurance_name, p.insurance_member_id, p.insurance_subscriber, pr.name AS provider_name
        FROM appointments a JOIN patients p ON p.id = a.patient_id JOIN providers pr ON pr.id = a.provider_id
        WHERE a.start_ts >= $1 AND a.start_ts < $2 AND p.practice_id = $3
        ORDER BY a.start_ts LIMIT ${MAX_APPOINTMENTS + 1}`,

@@ -26,6 +26,8 @@ interface Appointment {
   patient_name: string;
   provider_name: string;
   insurance_name: string | null;
+  insurance_member_id: string | null;
+  insurance_subscriber: string | null;
   emergency_summary: string | null;
   via_chat: boolean;
   type: string;
@@ -456,7 +458,15 @@ export default function StaffDashboard() {
                         {a.emergency_summary && <div className="text-xs text-muted">{a.emergency_summary}</div>}
                       </td>
                       <td className="py-2 pr-3 whitespace-nowrap">{a.provider_name}</td>
-                      <td className="py-2">{a.insurance_name ?? <span className="text-muted">Self-pay</span>}</td>
+                      <td className="py-2">
+                        {a.insurance_name ?? <span className="text-muted">Self-pay</span>}
+                        {a.insurance_name && (
+                          <span className="block text-xs text-muted">
+                            {a.insurance_member_id ? `ID ${a.insurance_member_id}` : "No member ID yet"}
+                            {a.insurance_subscriber && ` · holder ${a.insurance_subscriber}`}
+                          </span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

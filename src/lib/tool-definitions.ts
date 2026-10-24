@@ -39,6 +39,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         date_of_birth: str("YYYY-MM-DD"),
         phone: str("10-digit US phone"),
         insurance_name: str("Insurance company name, or 'none' if self-pay"),
+        insurance_member_id: str("Optional: member ID from the insurance card"),
+        policyholder_name: str("Optional: policyholder's full name, only if it isn't the patient (e.g. a parent or spouse)"),
         email: str("Optional email for booking confirmations"),
         same_household_as_patient_id: int("Optional: link to a verified patient's household (family bookings)"),
       },

@@ -106,8 +106,8 @@ export async function seed({ reset = false, rngSeed = 42 } = {}): Promise<void> 
     await bulkInsert(
       tx,
       "patients",
-      ["id", "first_name", "last_name", "dob", "phone", "insurance_name", "household_id", "practice_id", "created_at"],
-      PATIENTS.map((p) => [...p, created]),
+      ["id", "first_name", "last_name", "dob", "phone", "insurance_name", "household_id", "practice_id", "created_at", "insurance_member_id"],
+      PATIENTS.map((p) => [...p, created, p[5] ? `W${String(p[0]).padStart(3, "0")}${p[4].slice(-6)}` : null]),
     );
     // Explicit ids above: move the identity sequence past them.
     await tx.run("SELECT setval(pg_get_serial_sequence('patients', 'id'), (SELECT max(id) FROM patients))");

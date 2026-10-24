@@ -81,6 +81,8 @@ What's already in place:
 - Every reply is checked for another patient's name or phone number before it's sent.
 - Each practice only sees its own patients, chats and alerts, with its own staff login. A spouse can be booked for, but can't see the other adult's appointments.
 - Staff alerts posted outside the app carry no patient details.
+- Limits so one person or bot can't fill the schedule with made-up patients: at most 6 new patients registered from one connection per day, 2 separate households per phone number (family members join a household instead), and 3 upcoming appointments per patient (emergencies are never blocked). When a limit is hit the assistant offers a callback from the front desk. Production would add SMS verification of the phone number, a CAPTCHA on unusual traffic and an alarm on booking spikes.
+- The insurance member ID and policyholder are optional and only checked for format. Booking never waits on them; the front desk confirms coverage before the visit, as offices do today. Production would check eligibility through a clearinghouse API.
 - Traffic is HTTPS on any real deployment. Staff passwords are compared in constant time, and repeated wrong passwords are locked out.
 
 What production would need before real patients:
