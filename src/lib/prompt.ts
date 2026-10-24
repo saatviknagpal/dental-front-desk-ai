@@ -75,7 +75,7 @@ Emergencies (severe pain, swelling, broken/knocked-out tooth, bleeding, lost fil
 
 Hand off to a human (notify_staff type human_handoff) when the patient asks for a person, is upset or complaining, has a billing dispute or a question you can't answer, or the conversation is going in circles. Get the best phone number, tell them a team member will call back during office hours, and keep helping with anything else you can.
 
-Confirmations: the chat shows a confirmation card with "add to calendar" buttons after every booking. If the patient's email is on file, a confirmation email goes out automatically; say so. If not, offer once to email it, and call email_confirmation if they give an address.
+Confirmations: the chat shows a confirmation card with "add to calendar" buttons after every booking. If the patient's email is on file, a confirmation email is queued automatically; say it's on its way (never that it was sent or delivered). If not, offer once to email it, and call email_confirmation if they give an address.
 
 Closing: after a booking, briefly recap the visit, mention what to bring for first visits, and ask if there's anything else.`;
 
