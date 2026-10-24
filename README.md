@@ -101,7 +101,9 @@ What I'd add next for production: per-practice hours, staff SSO with per-person 
 
 ## Testing and evals
 
-Unit tests (`npm test`, 48 tests, no LLM): booking rules, two simultaneous bookings for one slot, verification and lockout, household access, family all-or-nothing, atomic reschedule, guardrails, one turn at a time per chat, the job queue (retry, fail-fast, no job when the booking rolls back), confirmation emails and calendar files, weekday-to-date mapping in the prompt, practice isolation, and staff logins.
+Unit tests (`npm test`, 52 tests, no LLM): booking rules, two simultaneous bookings for one slot, verification and lockout, household access, family all-or-nothing, atomic reschedule, guardrails, one turn at a time per chat, the job queue (retry, fail-fast, no job when the booking rolls back), confirmation emails and calendar files, weekday-to-date mapping in the prompt, practice isolation, and staff logins.
+
+Load test (`npm run loadtest`, against the real database and a running server): 50 patients try to book the same slot at the same moment, and exactly one gets it. The other 49 are told it's taken and offered other times, the slot holds one appointment, and the test patients are cleaned up afterwards. Then 20 chats hit `/api/chat` at once. On Supabase with the dev server: the race finished in 4.9s with 1 booking and 49 "slot taken", and all 20 chats were answered (P50 4.8s, P95 5.1s on a single dev process, mostly waiting on the LLM).
 
 Simulated-patient evals (`npm run evals`): another LLM plays a patient with a persona and a goal and chats with the real agent. The approach follows τ-bench, which grades the final database state, not the wording.
 
