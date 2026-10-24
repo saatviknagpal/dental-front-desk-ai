@@ -316,7 +316,7 @@ export default function StaffDashboard() {
             Open patient chat
           </Link>
           {data.admin && (
-            <Link href="/evals" className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm hover:bg-surface-2">
+            <Link href="/evals" prefetch={false} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm hover:bg-surface-2">
               <Icon name="checkCircle" className="size-4" />
               Eval report
             </Link>

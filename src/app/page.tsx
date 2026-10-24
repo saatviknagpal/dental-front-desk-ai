@@ -39,7 +39,7 @@ export default function Home() {
         ))}
       </ul>
       <p className="mt-8 text-sm text-muted">
-        Staff? <Link href="/staff" className="underline underline-offset-2 hover:text-text">Open the front desk dashboard</Link>
+        Staff? <Link href="/staff" prefetch={false} className="underline underline-offset-2 hover:text-text">Open the front desk dashboard</Link>
       </p>
     </main>
   );

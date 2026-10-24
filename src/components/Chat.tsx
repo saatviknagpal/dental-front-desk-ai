@@ -504,7 +504,7 @@ export default function Chat({ greeting, practice }: Props) {
                 </label>
               ))}
             </section>
-            <Link href={`/staff?practice=${practice.slug}`} className="inline-flex items-center gap-1.5 text-muted underline-offset-2 hover:text-text hover:underline">
+            <Link href={`/staff?practice=${practice.slug}`} prefetch={false} className="inline-flex items-center gap-1.5 text-muted underline-offset-2 hover:text-text hover:underline">
               Staff dashboard
               <Icon name="external" className="size-3.5" />
             </Link>
