@@ -126,6 +126,7 @@ function Transcript({ sessionId, onClose }: { sessionId: string; onClose: () => 
         </header>
         <div className="flex-1 space-y-3 overflow-y-auto p-5 text-sm">
           {messages === null && <p className="text-muted">Loading…</p>}
+          {messages?.length === 0 && <p className="text-muted">No messages in this chat.</p>}
           {messages?.map((m) => {
             if (m.role === "guardrail") {
               return (
