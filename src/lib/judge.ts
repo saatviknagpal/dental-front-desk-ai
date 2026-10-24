@@ -44,8 +44,16 @@ export function judgeProvider(): { provider: ProviderName; model: string } {
   return { provider, model: process.env.EVAL_JUDGE_MODEL || llmConfig(provider).model };
 }
 
+/** Used when the main judge fails (quota, billing, outage). A bigger model than the chat bot's to limit self-preference. */
+function fallbackJudge(): { provider: ProviderName; model: string } | null {
+  const fallback = { provider: "openai" as const, model: process.env.EVAL_JUDGE_FALLBACK_MODEL || "gpt-4.1" };
+  const main = judgeProvider();
+  if (main.provider === fallback.provider && main.model === fallback.model) return null;
+  return llmConfig(fallback.provider).apiKey ? fallback : null;
+}
+
 export function judgeAvailable(): boolean {
-  return !!llmConfig(judgeProvider().provider).apiKey;
+  return !!llmConfig(judgeProvider().provider).apiKey || !!fallbackJudge();
 }
 
 const judgePrompt = (PRACTICE: Practice = currentPractice()) => `You are a strict QA reviewer for a dental practice's AI chat assistant ("${PRACTICE.assistantName}" at ${PRACTICE.name}).
@@ -84,7 +92,19 @@ export function renderTranscript(rows: { role: string; content: string }[]): str
 }
 
 export async function judgeConversation(rows: { role: string; content: string }[]): Promise<JudgeVerdict> {
-  const { provider, model } = judgeProvider();
+  const main = judgeProvider();
+  const fallback = fallbackJudge();
+  if (!llmConfig(main.provider).apiKey && fallback) return judgeWith(fallback, rows);
+  try {
+    return await judgeWith(main, rows);
+  } catch (err) {
+    if (!fallback) throw err;
+    console.warn(`[judge] ${main.provider}:${main.model} failed (${err instanceof Error ? err.message : err}); using ${fallback.provider}:${fallback.model}`);
+    return judgeWith(fallback, rows);
+  }
+}
+
+async function judgeWith({ provider, model }: { provider: ProviderName; model: string }, rows: { role: string; content: string }[]): Promise<JudgeVerdict> {
   const started = Date.now();
   const res = await complete({
     provider,
