@@ -102,6 +102,10 @@ export function systemDynamic(now = practiceNow()): string {
   const firstNextMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1));
   const lastThisMonth = addDays(firstNextMonth, -1);
   const r = (a: Date, b: Date) => `${fmtDate(a)} to ${fmtDate(b)}`;
+  // Models misread weekday math off the calendar table, so spell out each day name.
+  const dayLines = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+    .map((name, i) => `- "${name}" / "this ${name}": ${fmtDate(addDays(today, (i + 1 - dow + 7) % 7))}; "next ${name}": ${fmtDate(addDays(nextMon, i))}`)
+    .join("\n");
 
   return `# Right now
 It is ${humanDate(now)}, ${humanTime(now)} (practice local time). The office is ${weekday(now) !== 0 && now.getUTCHours() >= 8 && now.getUTCHours() < 18 ? "open" : "closed"} right now.
@@ -118,7 +122,8 @@ It is ${humanDate(now)}, ${humanTime(now)} (practice local time). The office is 
 - "next month": ${r(firstNextMonth, addDays(new Date(Date.UTC(firstNextMonth.getUTCFullYear(), firstNextMonth.getUTCMonth() + 1, 1)), -1))}
 - "ASAP" / "soonest": ${r(today, addDays(today, 6))}
 - "in two weeks": ${r(addDays(today, 12), addDays(today, 16))}
-- A weekday name alone ("Tuesday") means the next upcoming one.
+${dayLines}
+- When you mention a slot, use the day and date exactly as the tool's "display" field shows.
 
 # Calendar
 ${lines.join("\n")}`;
