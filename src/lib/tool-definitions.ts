@@ -144,7 +144,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   },
   {
     name: "notify_staff",
-    description: "Alert the front desk. Use for: urgent issues with no bookable emergency slot, a patient asking for a human, complaints/billing disputes, questions you can't answer, or callback requests.",
+    description: "Alert the front desk. Use for: medical red flags (call it right away, even before you know who the patient is), urgent issues with no bookable emergency slot, a patient asking for a human, complaints/billing disputes, questions you can't answer, or callback requests.",
     parameters: {
       type: "object",
       properties: {

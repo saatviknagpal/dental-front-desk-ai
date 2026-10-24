@@ -15,6 +15,8 @@ import { executeTool, TOOL_DEFINITIONS, type ToolContext } from "./tools";
 
 const MAX_TOOL_ROUNDS = 8;
 const MAX_HISTORY_MESSAGES = 80;
+/** A reply telling the patient staff were alerted ("I've alerted our dental team", "I've let the front desk know"). */
+export const ALERT_CLAIM = /\bI(?:'ve| have|'m| am)?\s+(?:(?:also|just|already)\s+)*(?:alerted|notified|alerting|notifying|let)\s+(?:our|the)\s+(?:dental\s+)?(?:team|staff|front desk|office)\b/i;
 export const MAX_USER_CHARS = 2000;
 
 export interface ToolEvent {
@@ -254,6 +256,17 @@ async function runClaimedTurn(session: Awaited<ReturnType<typeof loadSession>>, 
       reply = fallbackReply();
       degraded = true;
     }
+  }
+
+  // The model sometimes says "I've alerted the team" without calling notify_staff. Keep the promise in code.
+  const alerted = toolEvents.some((e) => e.ok && (e.name === "notify_staff" || (e.name === "book_appointment" && e.args.appointment_type === "emergency")));
+  if (!alerted && ALERT_CLAIM.test(reply)) {
+    const urgent = /911|emergency room|\bER\b/i.test(reply);
+    const args = { type: urgent ? "emergency" : "human_handoff", urgency: urgent ? "high" : "normal", summary: `Patient wrote: "${text.slice(0, 300)}". The assistant told them the team was alerted.` };
+    const started = Date.now();
+    const result = await executeTool(ctx, "notify_staff", args);
+    toolEvents.push({ name: "notify_staff", args, ok: result.ok, error: result.ok ? undefined : result.error, ms: Date.now() - started });
+    await logMessage(session.id, "guardrail", JSON.stringify({ rule: "alert-promise", result }));
   }
 
   // Never send another patient's name or phone, whatever the model produced.
