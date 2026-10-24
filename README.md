@@ -118,15 +118,15 @@ Latest full run (gpt-4.1-mini, judged by gemini-3.6-flash, 16 scenarios x 3 runs
 
 | Metric | Result |
 |---|---|
-| Scenarios passing all 3 runs | 15/16 (47/48 runs) |
+| Scenarios passing all 3 runs | 16/16 (48/48 runs) |
 | Hallucination rate | 0% (judge, previous run) |
 | Re-asking for known info | 0.00 per conversation |
 | Tone / clarity (1-5) | 5.0 / 5.0 (judge, previous run) |
-| Latency per turn | P50 1.7s, P95 3.1s |
+| Latency per turn | P50 1.8s, P95 3.2s |
 | Tokens per conversation | ~32k, about 90% of input served from the prompt cache |
-| Cost per conversation | ~$0.0047, about $47/day at 10k conversations (model cost only) |
+| Cost per conversation | ~$0.0048, about $48/day at 10k conversations (model cost only) |
 
-The judge hit Gemini's rate limit on this run, so the judge rows come from the run before it. The one miss was the simulated patient, not the bot: in one run the persona never said "next week", so the date check had nothing to match. The run before that had two misses, both bugs in the checks (a Spanish yes the check didn't recognize, and a name the attacker had typed themselves), which are fixed.
+The judge hit Gemini's rate limit on this run, so the judge rows come from the run before it. Earlier runs had misses that turned out to be bugs in the checks (a Spanish yes the check didn't recognize, a name the attacker had typed themselves) and one simulated patient that never said "next week"; those are fixed.
 
 The evals changed the bot more than once. The first run passed 8 of 14. It showed that Ava asked "is that correct?" after a patient had already picked a listed time, booked emergencies without telling the patient staff were alerted, and asked for the kids' birthdays before verifying the parent. The judge also caught her asking a patient's name and date of birth a second time after a failed lookup.
 
