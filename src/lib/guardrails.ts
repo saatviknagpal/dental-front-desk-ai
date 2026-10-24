@@ -31,7 +31,8 @@ export async function moderateInput(text: string): Promise<InputVerdict> {
     if (!r?.flagged) return { ok: true };
     const c = r.categories as unknown as Record<string, boolean>;
     if (c["self-harm"] || c["self-harm/intent"] || c["self-harm/instructions"]) return { ok: false, reason: "self-harm", reply: CRISIS_REPLY };
-    if (c["harassment/threatening"] || c["violence"] || c["hate/threatening"] || c["harassment"] || c["hate"]) return { ok: false, reason: "abuse", reply: abuseReply() };
+    // Not "violence": injuries ("knocked out my tooth", "bleeding") get flagged as violence and are exactly the emergencies we must help with.
+    if (c["harassment/threatening"] || c["hate/threatening"] || c["harassment"] || c["hate"]) return { ok: false, reason: "abuse", reply: abuseReply() };
     return { ok: true };
   } catch {
     return { ok: true };
