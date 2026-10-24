@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: bright-smile-dental-chatbot
+    name: dental-front-desk-ai
     runtime: node
     plan: free
     buildCommand: npm ci && npm run build
