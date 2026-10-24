@@ -68,9 +68,11 @@ Code layout: `src/lib/` is the domain logic and doesn't import Next.js (tools, a
 
 ## Design decisions
 
+It's one Next.js app rather than a separate API and frontend. For a small team that's one thing to deploy and fewer ways to fail, and since the logic in `src/lib/` doesn't depend on Next.js, splitting it out later is a move, not a rewrite.
+
 The rules are in code, not the prompt. The model decides what to do and the tools decide whether it's allowed. It can't book a time that isn't open, touch a patient who hasn't been verified, or book an emergency without the staff alert. You can talk a prompt out of a rule; you can't talk a tool out of returning an error.
 
-Booking is one conditional update: `UPDATE slots ... WHERE status = 'open'` inside a transaction. If two people race for the same slot, the database lets exactly one win and the other is offered alternatives. I didn't add a temporary hold like a ticketing site uses during checkout, because there's no checkout here; booking is instant once the patient picks, so a hold would only leave slots stuck.
+Availability is stored as one row per 30-minute slot per dentist, instead of being worked out from schedules on the fly. That's what makes booking safe: it's one conditional update, `UPDATE slots ... WHERE status = 'open'` inside a transaction. If two people race for the same slot, the database lets exactly one win and the other is offered alternatives. I didn't add a temporary hold like a ticketing site uses during checkout, because there's no checkout here; booking is instant once the patient picks, so a hold would only leave slots stuck.
 
 Picking a listed time counts as the patient's yes. It saves a round of "are you sure?". Vague picks ("the morning one" when there are two), cancellations and multi-person bookings still get an explicit yes.
 
@@ -127,6 +129,8 @@ What changes at 10,000+ conversations a day. The design already scales out, so i
 | The dashboard polls every 5 seconds | Poll less often, or push changes |
 | About 200k message rows a day | Archive or delete old transcripts |
 
+Next, if this were going live: one-time text codes for identity, per-person staff accounts through single sign-on, patient search on the staff dashboard, schema migrations as a deploy step instead of at startup, the eval suite running in CI on every prompt or model change, tracing per tool call, and letting time buttons book directly without a round trip through the model.
+
 ## Testing and evals
 
 Unit tests (`npm test`, 73 of them, no model calls) cover booking rules, simultaneous bookings, verification and lockouts, household access, all-or-nothing family bookings, atomic reschedules, guardrails, the job queue, emails and calendar files, date handling, practice isolation, staff logins, the abuse limits (including 8 registrations fired at once) and the judge fallback.
@@ -179,4 +183,4 @@ Resend's free tier only delivers to the Resend account's own email address, so c
 
 ## Deploying
 
-`render.yaml` is included. Create a Render Blueprint from the repo and set `LLM_API_KEY`, `DATABASE_URL`, `STAFF_PASSWORD`, `STAFF_PASSWORDS`, and optionally `STAFF_WEBHOOKS` (per-practice Slack) and `GEMINI_API_KEY`. Set `CLIENT_IP_HEADER=cf-connecting-ip` so limits use each visitor's real IP. The job worker starts with the server, and `/api/health` also checks the database.
+It runs on Render rather than Vercel because the job worker needs a server that stays up; serverless functions stop between requests. `render.yaml` is included. Create a Render Blueprint from the repo and set `LLM_API_KEY`, `DATABASE_URL`, `STAFF_PASSWORD`, `STAFF_PASSWORDS`, and optionally `STAFF_WEBHOOKS` (per-practice Slack) and `GEMINI_API_KEY`. Set `CLIENT_IP_HEADER=cf-connecting-ip` so limits use each visitor's real IP. The job worker starts with the server, and `/api/health` also checks the database.
