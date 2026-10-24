@@ -101,7 +101,7 @@ What I'd add next for production: per-practice hours, staff SSO with per-person 
 
 ## Testing and evals
 
-Unit tests (`npm test`, 47 tests, no LLM): booking rules, two simultaneous bookings for one slot, verification and lockout, household access, family all-or-nothing, atomic reschedule, guardrails, one turn at a time per chat, the job queue (retry, fail-fast, no job when the booking rolls back), confirmation emails and calendar files, practice isolation, and staff logins.
+Unit tests (`npm test`, 48 tests, no LLM): booking rules, two simultaneous bookings for one slot, verification and lockout, household access, family all-or-nothing, atomic reschedule, guardrails, one turn at a time per chat, the job queue (retry, fail-fast, no job when the booking rolls back), confirmation emails and calendar files, weekday-to-date mapping in the prompt, practice isolation, and staff logins.
 
 Simulated-patient evals (`npm run evals`): another LLM plays a patient with a persona and a goal and chats with the real agent. The approach follows τ-bench, which grades the final database state, not the wording.
 
@@ -118,15 +118,15 @@ Latest full run (gpt-4.1-mini, judged by gemini-3.6-flash, 16 scenarios x 3 runs
 
 | Metric | Result |
 |---|---|
-| Scenarios passing all 3 runs | 14/16 (44/48 runs) |
-| Hallucination rate | 0% |
+| Scenarios passing all 3 runs | 15/16 (47/48 runs) |
+| Hallucination rate | 0% (judge, previous run) |
 | Re-asking for known info | 0.00 per conversation |
-| Tone / clarity (1-5) | 5.0 / 5.0 |
+| Tone / clarity (1-5) | 5.0 / 5.0 (judge, previous run) |
 | Latency per turn | P50 1.7s, P95 3.1s |
-| Tokens per conversation | ~30k, 81% of input served from the prompt cache |
-| Cost per conversation | ~$0.005, about $52/day at 10k conversations (model cost only) |
+| Tokens per conversation | ~32k, about 90% of input served from the prompt cache |
+| Cost per conversation | ~$0.0047, about $47/day at 10k conversations (model cost only) |
 
-The two misses: the Spanish check didn't count "prefiero la primera opción" as a yes (a bug in the check), and in one injection run the reply repeated a patient name the attacker had typed. The check now ignores names the user typed themselves, and the output privacy guardrail blocks any other patient's details.
+The judge hit Gemini's rate limit on this run, so the judge rows come from the run before it. The one miss was the simulated patient, not the bot: in one run the persona never said "next week", so the date check had nothing to match. The run before that had two misses, both bugs in the checks (a Spanish yes the check didn't recognize, and a name the attacker had typed themselves), which are fixed.
 
 The evals changed the bot more than once. The first run passed 8 of 14. It showed that Ava asked "is that correct?" after a patient had already picked a listed time, booked emergencies without telling the patient staff were alerted, and asked for the kids' birthdays before verifying the parent. The judge also caught her asking a patient's name and date of birth a second time after a failed lookup.
 
