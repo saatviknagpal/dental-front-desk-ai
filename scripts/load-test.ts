@@ -3,9 +3,10 @@
 //   npm run loadtest                         # 50 bookings race for one slot + 20 chats at once
 //   npm run loadtest -- --bookers=100 --chats=0
 //   npm run loadtest -- --url=https://your-app.onrender.com
+//   npm run loadtest -- --keep              # race for a slot next week and keep the winner (shows on /staff)
 //
 // Part 1 calls the booking tool directly (no LLM) with N different patients for the same
-// slot, then cleans up after itself. Part 2 sends N chats to /api/chat at once and reports
+// slot, then cleans up after itself (with --keep, the winning booking and its patient stay). Part 2 sends N chats to /api/chat at once and reports
 // latency; those chats call the LLM (about $0.002 each) and show up on /staff.
 
 import "dotenv/config";
@@ -15,6 +16,7 @@ process.env.DATABASE_POOL_MAX ||= "10"; // real concurrency: several transaction
 import { closeDb, db } from "@/lib/db";
 import { PRACTICES, withPractice } from "@/lib/practice";
 import { ensureSeeded } from "@/lib/seed";
+import { appointmentRange } from "@/lib/staff";
 import { addDays, fmtDate, practiceNow, startOfDay } from "@/lib/time";
 import { executeTool, type ToolContext } from "@/lib/tools";
 
@@ -22,6 +24,7 @@ const arg = (name: string, fallback: string) => process.argv.find((a) => a.start
 const BOOKERS = Number(arg("bookers", "50"));
 const CHATS = Number(arg("chats", "20"));
 const URL_BASE = arg("url", "http://localhost:3000");
+const KEEP = process.argv.includes("--keep");
 
 const pct = (xs: number[], p: number) => [...xs].sort((a, b) => a - b)[Math.min(xs.length - 1, Math.floor((p / 100) * xs.length))] ?? 0;
 const ctxFor = (i: number): ToolContext => ({ sessionId: `loadtest-${i}`, verified: [], household: [], failedVerifications: 0, caller: `loadtest-${i}` });
@@ -35,6 +38,7 @@ async function bookingRace(): Promise<boolean> {
   const runId = letters(Date.now() % 1e9);
   const ctxs = Array.from({ length: BOOKERS }, (_, i) => ctxFor(i));
   const patientIds: number[] = [];
+  let keptPatient: number | null = null;
   try {
     // Throwaway patients, registered through the real tool so each context is allowed to book for its patient.
     for (let i = 0; i < BOOKERS; i++) {
@@ -42,8 +46,10 @@ async function bookingRace(): Promise<boolean> {
       if (!r.ok) throw new Error(`register failed: ${r.error}`);
       patientIds.push(r.patient.patient_id);
     }
-    const from = fmtDate(addDays(startOfDay(practiceNow()), 35));
-    const found = await tool(ctxs[0], "find_available_slots", { appointment_type: "checkup", date_from: from, date_to: fmtDate(addDays(startOfDay(practiceNow()), 49)) });
+    // Default: 5+ weeks out so it never takes a time a demo patient might want. --keep: next week, so it shows on /staff.
+    const today = startOfDay(practiceNow());
+    const [from, to] = KEEP ? appointmentRange("next_week", today) : [addDays(today, 35), addDays(today, 49)];
+    const found = await tool(ctxs[0], "find_available_slots", { appointment_type: "checkup", date_from: fmtDate(from), date_to: fmtDate(addDays(to, -1)) });
     const slot = found.slots?.[0];
     if (!slot) throw new Error("no open checkup slot found to race for");
     console.log(`   slot: ${slot.display} with ${slot.provider_name}`);
@@ -69,16 +75,22 @@ async function bookingRace(): Promise<boolean> {
 
     if (winners[0]) {
       const winner = results.indexOf(winners[0]);
-      await tool(ctxs[winner], "cancel_appointment", { patient_id: patientIds[winner], appointment_id: winners[0].appointment.appointment_id });
+      if (KEEP) {
+        keptPatient = patientIds[winner];
+        console.log(`   kept: ${winners[0].appointment.patient_name}, ${winners[0].appointment.display} (see /staff, "Next week")`);
+      } else {
+        await tool(ctxs[winner], "cancel_appointment", { patient_id: patientIds[winner], appointment_id: winners[0].appointment.appointment_id });
+      }
     }
     const ok = winners.length === 1 && rows?.n === 1 && taken.length === BOOKERS - 1 && alternativesOffered;
     console.log(`   result: ${ok ? "PASS (exactly one booking, no double booking)" : "FAIL"}`);
     return ok;
   } finally {
     if (patientIds.length) {
-      await db.run("DELETE FROM appointments WHERE patient_id = ANY($1)", [patientIds]);
-      await db.run("DELETE FROM patients WHERE id = ANY($1)", [patientIds]);
-      console.log(`   cleaned up ${patientIds.length} test patients`);
+      const drop = patientIds.filter((id) => id !== keptPatient);
+      await db.run("DELETE FROM appointments WHERE patient_id = ANY($1)", [drop]);
+      await db.run("DELETE FROM patients WHERE id = ANY($1)", [drop]);
+      console.log(`   cleaned up ${drop.length} test patients`);
     }
   }
 }
