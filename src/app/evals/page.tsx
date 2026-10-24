@@ -16,12 +16,7 @@ export const metadata: Metadata = { title: "Eval report" };
 
 export default async function EvalsPage({ searchParams }: { searchParams: Promise<{ run?: string }> }) {
   const { run: runParam } = await searchParams;
-  let runs: RunRow[] = [];
-  try {
-    runs = await db.all<RunRow>("SELECT * FROM eval_runs ORDER BY id DESC LIMIT 20");
-  } catch {
-    /* table not created yet */
-  }
+  const runs = await db.all<RunRow>("SELECT * FROM eval_runs ORDER BY id DESC LIMIT 20");
   const run = runs.find((r) => String(r.id) === runParam) ?? runs[0];
 
   if (!run) {
