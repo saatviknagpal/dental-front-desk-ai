@@ -86,7 +86,7 @@ Limits against bots grabbing every slot: at most 3 upcoming appointments per pat
 
 Alerts and emails go through a job queue in Postgres. The booking or alert and its job row are written in the same transaction, so a job exists exactly when the write committed. Workers claim jobs with `FOR UPDATE SKIP LOCKED`, which is safe with any number of instances, retry with backoff, give up early on errors a retry can't fix, and pick up jobs left behind by a crash. Alerts show on the practice's `/staff` page (with a count in the tab title and a chime for emergencies) and post to that practice's own Slack. The Slack message says only what happened and links to the dashboard. Names and symptoms stay behind the staff login, because Slack isn't covered for health data.
 
-No Redis. Postgres is already the queue, the lock and the session store, and 10,000 conversations a day is about one every ten seconds. Redis would make sense at far higher traffic for shared counters or caching.
+No Redis in the demo. With one server, Postgres is the queue, the lock and the session store, and that's enough to run it. In production I'd add Redis for two things: caching the read-heavy data (availability searches and practice and provider details, with a short expiry and cleared whenever a booking changes that day) and keeping rate-limit and lockout counters shared across servers. Bookings would still go through the Postgres update, so a stale cache can never double-book; at worst it shows a slot that was just taken, and the booking step offers other times.
 
 On the model: the brief asks for one with a free tier. Gemini's free tier works with `LLM_PROVIDER=gemini`, but its daily limit (20 requests on my key) runs out within a single eval run, so I used `gpt-4.1-mini`. It costs about half a cent per conversation and was the most reliable at tool calls in my evals. The stable part of the prompt is built once per practice so providers can cache it.
 
@@ -125,7 +125,8 @@ What changes at 10,000+ conversations a day. The design already scales out, so i
 | Model rate limits (about 40k tokens per conversation, roughly 280k tokens a minute on average) | A higher OpenAI tier, and a cheaper model for simple FAQ turns |
 | One free Render instance that sleeps | Two or more paid instances, mainly so a crash or deploy doesn't stop chats; the app mostly waits on the model, so it scales out rather than up |
 | Supabase's free pooler (about 15 connections) | The transaction pooler or a bigger plan; Postgres can scale up a long way before it needs replicas |
-| Rate-limit and login counters kept in each instance's memory | Move them into Postgres |
+| Rate-limit and login counters kept in each instance's memory | Move them into Redis so every instance shares them |
+| Every availability search hits Postgres | Cache searches and practice data in Redis, cleared on each booking |
 | The dashboard polls every 5 seconds | Poll less often, or push changes |
 | About 200k message rows a day | Archive or delete old transcripts |
 
