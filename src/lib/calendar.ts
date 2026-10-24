@@ -9,6 +9,8 @@ export interface Booking {
   display: string;
   provider_name: string;
   duration_minutes: number;
+  /** Set when the appointment was moved: the old time. */
+  previous_time?: string;
 }
 
 export interface PracticeInfo {

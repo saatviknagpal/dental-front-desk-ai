@@ -24,6 +24,10 @@ describe("booking abuse limits", () => {
     expect((await register(newCtx("198.51.100.4"), 7)).ok).toBe(true); // a different connection is fine
   });
 
+  it("doesn't cap the local dev server, where every tester shares one address", async () => {
+    for (let i = 0; i < 7; i++) expect((await register(newCtx("::1"), i)).ok).toBe(true);
+  });
+
   it("holds the registration cap when a bot registers from many chats at once", async () => {
     const results = await Promise.all(names.map((_, i) => register({ ...newCtx("203.0.113.7"), sessionId: `bot-${i}` }, i)));
     expect(results.filter((r) => r.ok)).toHaveLength(6);

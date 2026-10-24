@@ -10,7 +10,7 @@ export default function BookingCard({ booking, practice }: { booking: Booking; p
     <div className="mt-3 overflow-hidden rounded-xl border border-border bg-surface text-sm" role="group" aria-label="Appointment confirmation">
       <div className="flex items-center gap-2 border-b border-border bg-success-soft px-4 py-2.5 font-bold text-success">
         <Icon name="checkCircle" className="size-4.5" />
-        Booked: {booking.label}
+        {booking.previous_time ? "Moved" : "Booked"}: {booking.label}
       </div>
       <dl className="space-y-2 px-4 py-3">
         <div className="flex gap-2.5">
@@ -18,6 +18,7 @@ export default function BookingCard({ booking, practice }: { booking: Booking; p
           <Icon name="calendar" className="mt-0.5 size-4 text-muted" />
           <dd className="font-bold">
             {booking.display} · {booking.duration_minutes} min
+            {booking.previous_time && <span className="block text-xs font-normal text-muted">Was {booking.previous_time}</span>}
           </dd>
         </div>
         <div className="flex gap-2.5">

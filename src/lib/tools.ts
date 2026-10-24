@@ -67,6 +67,7 @@ const MAX_FAILED_PER_NAME = 20;
 const MAX_UPCOMING_PER_PATIENT = 3;
 const MAX_REGISTRATIONS_PER_CALLER_PER_DAY = 6; // a parent registering a big family still fits
 const MAX_HOUSEHOLDS_PER_PHONE = 2;
+const LOCAL_CALLERS = new Set(["local", "::1", "127.0.0.1", "::ffff:127.0.0.1"]);
 
 class ToolError extends Error {
   constructor(
@@ -426,7 +427,7 @@ async function verify_patient(ctx: ToolContext, args: Args): Promise<ToolResult>
   if (ctx.failedVerifications >= MAX_FAILED_VERIFICATIONS) return LOCKED();
   const dob = normDob(args.date_of_birth);
   const name = normName(String(args.full_name ?? ""));
-  if (!dob || !name.includes(" ")) return fail("MISSING_INFO", "Need the patient's full name (first and last) and date of birth (YYYY-MM-DD).");
+  if (!dob || !name.includes(" ")) return fail("MISSING_INFO", "Need the patient's full name (first and last) and date of birth (any format from the patient; pass it as YYYY-MM-DD).");
   // The lockout is also counted per name across all chats, so opening a new chat doesn't reset it.
   const since = fmtTs(addMinutes(practiceNow(), -LOCKOUT_MINUTES));
   // Lock this caller after 3 misses for a name; lock the name for everyone only after many misses,
@@ -489,7 +490,7 @@ async function register_patient(ctx: ToolContext, args: Args): Promise<ToolResul
   const last = String(args.last_name ?? "").trim();
   const dob = normDob(args.date_of_birth);
   if (!first || !last) return fail("MISSING_INFO", "First and last name are required.");
-  if (!dob) return fail("INVALID_DOB", "Date of birth must be a real date (YYYY-MM-DD).");
+  if (!dob) return fail("INVALID_DOB", "That date of birth isn't a real date. Ask the patient to check it.");
   const now = practiceNow();
   const age = ageOn(dob, now);
   if (parseTs(dob)! > now || age > 120) return fail("INVALID_DOB", "That date of birth doesn't look right. Please double-check it.");
@@ -521,8 +522,8 @@ async function register_patient(ctx: ToolContext, args: Args): Promise<ToolResul
     id = await transaction(async (tx) => {
       // Limits are counted inside the transaction under a lock, so parallel chats from one bot can't all pass the count at once.
       const callbackInstead = "Don't try again; offer to have the front desk call them back to finish registering (notify_staff with type callback).";
-      // "local" is the dev server with no proxy header, so every tester shares it.
-      if (ctx.caller && ctx.caller !== "local") {
+      // Local addresses are the dev server (no proxy), where every tester shares one caller.
+      if (ctx.caller && !LOCAL_CALLERS.has(ctx.caller)) {
         await tx.run("SELECT pg_advisory_xact_lock(hashtext($1))", [`register:${ctx.caller}`]);
         const recent = await tx.get<{ n: number }>("SELECT count(*)::int AS n FROM patients WHERE registered_by = $1 AND created_at >= $2", [ctx.caller, fmtTs(addDays(now, -1))]);
         if ((recent?.n ?? 0) >= MAX_REGISTRATIONS_PER_CALLER_PER_DAY) throw new ToolError("REGISTRATION_LIMIT", `Too many new patients registered from this connection today. ${callbackInstead}`);

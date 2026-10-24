@@ -47,6 +47,7 @@ export interface BookingCard {
   display: string;
   provider_name: string;
   duration_minutes: number;
+  previous_time?: string;
 }
 
 type Slot = { display: string; provider_name: string };
