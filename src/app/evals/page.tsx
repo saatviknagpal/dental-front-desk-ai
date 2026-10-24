@@ -7,6 +7,7 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { JUDGE_RUBRIC, type JudgeVerdict } from "@/lib/judge";
 import { fmtUsd, type Usage } from "@/lib/pricing";
+import Icon from "@/components/Icon";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Eval report — Bright Smile Dental" };
@@ -82,7 +83,7 @@ const isJudge = (j: ResultRow["judge"]): j is JudgeVerdict => !!j && !("skipped"
 const n = (x: number) => Math.round(x).toLocaleString();
 
 function Badge({ ok, children }: { ok: boolean; children: React.ReactNode }) {
-  return <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ok ? "bg-brand-soft text-brand-strong" : "bg-danger-soft text-danger"}`}>{children}</span>;
+  return <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold ${ok ? "bg-success-soft text-success" : "bg-danger-soft text-danger"}`}><Icon name={ok ? "check" : "x"} className="size-3.5" />{children}</span>;
 }
 
 function Trajectory({ steps }: { steps: StepRow[] }) {
@@ -93,7 +94,7 @@ function Trajectory({ steps }: { steps: StepRow[] }) {
           return (
             <li key={s.seq} className="flex justify-end">
               <div className="max-w-[80%] rounded-xl bg-user-bubble px-3 py-2 text-user-text">
-                <div className="text-[10px] uppercase tracking-wide opacity-70">Patient</div>
+                <div className="text-xs font-bold opacity-80">Patient</div>
                 {String(s.content)}
               </div>
             </li>
@@ -103,7 +104,7 @@ function Trajectory({ steps }: { steps: StepRow[] }) {
           return (
             <li key={s.seq}>
               <div className="max-w-[80%] whitespace-pre-wrap rounded-xl bg-surface-2 px-3 py-2">
-                <div className="text-[10px] uppercase tracking-wide text-muted">Ava (sent to patient)</div>
+                <div className="text-xs font-bold text-muted">Assistant (sent to patient)</div>
                 {String(s.content)}
               </div>
             </li>
@@ -130,7 +131,7 @@ function Trajectory({ steps }: { steps: StepRow[] }) {
                   {n(c.inputTokens)} in ({n(c.cachedInputTokens)} cached) · {n(c.outputTokens)} out · {fmtUsd(c.costUsd)} · {c.llmMs}ms
                 </span>
               </div>
-              {c.decision === "call_tools" && c.tool_calls.map((t, i) => <div key={i} className="mt-1 break-all text-muted">→ {t.name}({JSON.stringify(t.args)})</div>)}
+              {c.decision === "call_tools" && c.tool_calls.map((t, i) => <div key={i} className="mt-1 break-all text-muted">{t.name}({JSON.stringify(t.args)})</div>)}
             </li>
           );
         }
@@ -139,8 +140,9 @@ function Trajectory({ steps }: { steps: StepRow[] }) {
           <li key={s.seq}>
             <details className={`rounded-lg px-3 py-2 font-mono text-xs ${t.ok ? "bg-brand-soft" : "bg-warn-soft"}`}>
               <summary className="cursor-pointer">
-                {t.ok ? "✓" : "!"} tool <b>{t.name}</b>
-                {t.error ? ` → ${t.error}` : ""} · {t.ms}ms <span className="text-muted">(click for args + result)</span>
+                <Icon name={t.ok ? "check" : "alertCircle"} className="mr-1 inline size-3.5 align-[-2px]" />
+                tool <b>{t.name}</b>
+                {t.error ? `: ${t.error}` : ""} · {t.ms}ms <span className="text-muted">(click for args + result)</span>
               </summary>
               <div className="mt-2 text-muted">args</div>
               <pre className="overflow-x-auto whitespace-pre-wrap break-all">{JSON.stringify(t.args, null, 2)}</pre>
@@ -167,7 +169,7 @@ export default async function EvalsPage({ searchParams }: { searchParams: Promis
   if (!run) {
     return (
       <main className="mx-auto max-w-3xl px-4 py-12">
-        <h1 className="text-2xl font-semibold">Eval report</h1>
+        <h1 className="text-2xl font-bold">Eval report</h1>
         <p className="mt-3 text-muted">
           No eval runs yet. Run <code className="rounded bg-surface-2 px-1.5 py-0.5">npm run evals</code> and refresh.
         </p>
@@ -204,12 +206,12 @@ export default async function EvalsPage({ searchParams }: { searchParams: Promis
     <main className="mx-auto max-w-6xl space-y-8 px-4 py-6 md:px-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Eval report</h1>
+          <h1 className="text-2xl font-bold">Eval report</h1>
           <p className="max-w-2xl text-sm text-muted">
             Simulated patients (an LLM playing a persona with a goal) chat with the real agent. Outcomes are checked against the final database state; a judge from a different model family scores conversation quality against the rubric below.
           </p>
         </div>
-        <Link href="/staff" className="rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-surface-2">
+        <Link href="/staff" className="inline-flex min-h-10 items-center rounded-lg border border-border px-3 text-sm hover:bg-surface-2">
           Staff dashboard
         </Link>
       </header>
@@ -299,9 +301,10 @@ export default async function EvalsPage({ searchParams }: { searchParams: Promis
           const group = results.filter((r) => r.scenario_id === id);
           const allPass = group.every((r) => r.passed);
           return (
-            <details key={id} className="rounded-2xl border border-border bg-surface" open={!allPass}>
+            <details key={id} className="group rounded-2xl border border-border bg-surface" open={!allPass}>
               <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 px-5 py-3">
                 <div className="flex items-center gap-3">
+                  <Icon name="chevron" className="size-4 -rotate-90 text-muted transition-transform group-open:rotate-0" />
                   <Badge ok={allPass}>{allPass ? "PASS" : "FAIL"}</Badge>
                   <span className="font-medium">{group[0].title}</span>
                 </div>
@@ -324,8 +327,12 @@ export default async function EvalsPage({ searchParams }: { searchParams: Promis
                       <ul className="space-y-1 text-sm">
                         {r.checks.map((c) => (
                           <li key={c.name} className={c.pass ? "" : "text-danger"}>
-                            {c.pass ? "✓" : "✗"} {c.name}
-                            {c.detail && <div className="ml-5 break-all font-mono text-xs text-muted">{c.detail}</div>}
+                            <span className="inline-flex items-center gap-1.5">
+                              <Icon name={c.pass ? "check" : "x"} className={`size-4 ${c.pass ? "text-success" : ""}`} />
+                              {c.name}
+                              <span className="sr-only">{c.pass ? "(passed)" : "(failed)"}</span>
+                            </span>
+                            {c.detail && <div className="ml-5.5 break-all font-mono text-xs text-muted">{c.detail}</div>}
                           </li>
                         ))}
                       </ul>

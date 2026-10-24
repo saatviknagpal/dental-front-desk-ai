@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { fmtUsd, type Usage } from "@/lib/pricing";
+import Icon from "./Icon";
 
 interface Notification {
   id: number;
@@ -89,9 +90,14 @@ function Transcript({ sessionId, onClose }: { sessionId: string; onClose: () => 
       .then((d) => setMessages(d.messages))
       .catch(() => setMessages([]));
   }, [sessionId]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-20 flex justify-end bg-black/30" onClick={onClose}>
+    <div className="fixed inset-0 z-20 flex justify-end bg-black/40" onClick={onClose}>
       <aside
         className="flex h-full w-full max-w-xl flex-col bg-surface shadow-xl"
         onClick={(e) => e.stopPropagation()}
@@ -101,7 +107,8 @@ function Transcript({ sessionId, onClose }: { sessionId: string; onClose: () => 
       >
         <header className="flex items-center justify-between border-b border-border px-5 py-3">
           <h2 className="font-semibold">Transcript</h2>
-          <button type="button" onClick={onClose} className="rounded-lg px-3 py-1 text-sm hover:bg-surface-2">
+          <button type="button" onClick={onClose} autoFocus className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border px-3 text-sm hover:bg-surface-2">
+            <Icon name="close" className="size-4" />
             Close
           </button>
         </header>
@@ -124,7 +131,7 @@ function Transcript({ sessionId, onClose }: { sessionId: string; onClose: () => 
               }
               return (
                 <div key={m.id} className="rounded-lg border border-dashed border-border px-3 py-1.5 font-mono text-xs text-muted">
-                  LLM step {c.step} · {c.model} · {c.decision === "call_tools" ? `→ ${c.tool_calls?.map((t) => t.name).join(", ")}` : "→ reply"} · {c.inputTokens} in ({c.cachedInputTokens} cached) / {c.outputTokens} out · {fmtUsd(c.costUsd ?? 0)} · {c.llmMs}ms
+                  LLM step {c.step} · {c.model} · {c.decision === "call_tools" ? `calls ${c.tool_calls?.map((t) => t.name).join(", ")}` : "replies"} · {c.inputTokens} in ({c.cachedInputTokens} cached) / {c.outputTokens} out · {fmtUsd(c.costUsd ?? 0)} · {c.llmMs}ms
                 </div>
               );
             }
@@ -137,9 +144,10 @@ function Transcript({ sessionId, onClose }: { sessionId: string; onClose: () => 
               }
               return (
                 <details key={m.id} className={`rounded-lg px-3 py-2 font-mono text-xs ${parsed.ok ? "bg-brand-soft" : "bg-warn-soft"}`}>
-                  <summary className="cursor-pointer">
-                    {parsed.ok ? "✓" : "!"} {parsed.name}
-                    {parsed.error ? ` → ${parsed.error}` : ""}
+                  <summary className="inline-flex cursor-pointer items-center gap-1.5">
+                    <Icon name={parsed.ok ? "check" : "alertCircle"} className="size-3.5" />
+                    {parsed.name}
+                    {parsed.error ? `: ${parsed.error}` : ""}
                   </summary>
                   <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all">{JSON.stringify(JSON.parse(m.content), null, 2)}</pre>
                 </details>
@@ -207,9 +215,13 @@ export default function StaffDashboard() {
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 md:px-8">
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Front desk dashboard</h1>
-          <p className="text-sm text-muted">
+        <div className="flex items-center gap-3">
+          <div className="grid size-11 shrink-0 place-items-center rounded-xl bg-brand text-on-brand" aria-hidden="true">
+            <Icon name="tooth" className="size-6" />
+          </div>
+          <div>
+          <h1 className="text-2xl font-bold">Front desk dashboard</h1>
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
             <select
               aria-label="Practice"
               value={data.practice.slug}
@@ -218,7 +230,7 @@ export default function StaffDashboard() {
                 setData(null);
                 load();
               }}
-              className="mr-2 rounded-md border border-border bg-surface px-2 py-1 text-text"
+              className="min-h-9 rounded-lg border border-border bg-surface px-2 text-text"
             >
               {data.practices.map((p) => (
                 <option key={p.slug} value={p.slug}>
@@ -226,20 +238,26 @@ export default function StaffDashboard() {
                 </option>
               ))}
             </select>
-            live, refreshes every 5s · {data.now}
+            <span className="inline-flex items-center gap-1.5">
+              <span className="size-2 rounded-full bg-success" aria-hidden="true" />
+              Live, refreshes every 5s · {data.now}
+            </span>
           </p>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Link href={`/p/${data.practice.slug}`} className="rounded-lg border border-border px-3 py-2 text-sm hover:bg-surface-2">
+        <div className="flex flex-wrap gap-2">
+          <Link href={`/p/${data.practice.slug}`} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm hover:bg-surface-2">
+            <Icon name="external" className="size-4" />
             Open patient chat
           </Link>
           {data.admin && (
-            <Link href="/evals" className="rounded-lg border border-border px-3 py-2 text-sm hover:bg-surface-2">
+            <Link href="/evals" className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm hover:bg-surface-2">
+              <Icon name="checkCircle" className="size-4" />
               Eval report
             </Link>
           )}
           {data.demoResetAllowed && (
-            <button type="button" onClick={reset} className="rounded-lg border border-border px-3 py-2 text-sm text-danger hover:bg-danger-soft">
+            <button type="button" onClick={reset} className="inline-flex min-h-10 items-center rounded-lg border border-danger/30 px-3 text-sm text-danger hover:bg-danger-soft">
               Reset demo data
             </button>
           )}
@@ -251,11 +269,11 @@ export default function StaffDashboard() {
           { label: "Open alerts", value: data.stats.openAlerts, accent: data.stats.openAlerts ? "text-danger" : "" },
           { label: "Conversations", value: data.stats.conversations },
           { label: "Booked via chat", value: data.stats.chatBookings, sub: `avg ${fmtUsd(data.stats.avgCostUsd)} LLM cost / chat` },
-          { label: "Satisfaction", value: satisfaction === null ? "—" : `${satisfaction}%`, sub: `${data.stats.thumbsUp} 👍 · ${data.stats.thumbsDown} 👎` },
+          { label: "Satisfaction", value: satisfaction === null ? "—" : `${satisfaction}%`, sub: `${data.stats.thumbsUp} helpful · ${data.stats.thumbsDown} not helpful` },
         ].map((s) => (
           <div key={s.label} className="rounded-2xl border border-border bg-surface px-5 py-4">
             <div className="text-sm text-muted">{s.label}</div>
-            <div className={`mt-1 text-2xl font-semibold ${s.accent ?? ""}`}>{s.value}</div>
+            <div className={`mt-1 text-2xl font-bold tabular-nums ${s.accent ?? ""}`}>{s.value}</div>
             {s.sub && <div className="text-xs text-muted">{s.sub}</div>}
           </div>
         ))}
@@ -270,7 +288,7 @@ export default function StaffDashboard() {
                   <div className="font-medium">{j.type === "booking_confirmation" ? `Confirmation email to ${j.to}` : `Staff alert: ${j.text ?? ""}`}</div>
                   <div className="truncate text-xs text-muted">{j.last_error}</div>
                 </div>
-                <button type="button" onClick={() => retryJob(j.id)} className="rounded-lg border border-border px-3 py-1 text-xs font-medium text-brand hover:bg-surface-2">
+                <button type="button" onClick={() => retryJob(j.id)} className="min-h-9 rounded-lg border border-border px-3 text-sm font-bold text-brand-strong hover:bg-surface-2">
                   Retry
                 </button>
               </li>
@@ -301,12 +319,13 @@ export default function StaffDashboard() {
                         {n.patient_name} {n.patient_phone ? `· ${n.patient_phone.replace(/(\d{3})(\d{3})(\d{4})/, "($1) $2-$3")}` : ""}
                       </p>
                     )}
-                    <div className="mt-2 flex gap-3 text-xs">
-                      <button type="button" onClick={() => ack(n.id, !n.acknowledged)} className="font-medium text-brand hover:underline">
+                    <div className="mt-3 flex gap-2 text-sm">
+                      <button type="button" onClick={() => ack(n.id, !n.acknowledged)} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border px-3 font-bold text-brand-strong hover:bg-surface-2">
+                        {!n.acknowledged && <Icon name="check" className="size-4" />}
                         {n.acknowledged ? "Re-open" : "Mark handled"}
                       </button>
                       {n.session_id && (
-                        <button type="button" onClick={() => setOpenSession(n.session_id)} className="text-muted hover:underline">
+                        <button type="button" onClick={() => setOpenSession(n.session_id)} className="min-h-9 rounded-lg px-3 text-muted hover:bg-surface-2 hover:text-text">
                           View chat
                         </button>
                       )}
@@ -345,7 +364,7 @@ export default function StaffDashboard() {
                       <td className="py-2 pr-3 whitespace-nowrap">{a.display}</td>
                       <td className="py-2 pr-3">
                         {a.patient_name}
-                        {a.via_chat && <span className="ml-1.5 rounded bg-brand-soft px-1.5 py-0.5 text-[10px] text-brand-strong no-underline">chat</span>}
+                        {a.via_chat && <span className="ml-1.5 rounded bg-brand-soft px-1.5 py-0.5 text-xs text-brand-strong no-underline">chat</span>}
                       </td>
                       <td className="py-2 pr-3">
                         <span className={a.type === "emergency" ? "font-medium text-danger" : ""}>{a.label}</span>
@@ -391,7 +410,13 @@ export default function StaffDashboard() {
                       {s.usage ? `${(s.usage.inputTokens + s.usage.outputTokens).toLocaleString()} · ${fmtUsd(s.usage.costUsd)}` : "—"}
                     </td>
                     <td className="py-2 pr-3">
-                      {s.rating === 1 ? "👍" : s.rating === -1 ? "👎" : <span className="text-muted">—</span>}
+                      {s.rating === 1 ? (
+                        <span className="inline-flex items-center gap-1 text-success"><Icon name="thumbsUp" className="size-4" />Helpful</span>
+                      ) : s.rating === -1 ? (
+                        <span className="inline-flex items-center gap-1 text-danger"><Icon name="thumbsDown" className="size-4" />Not helpful</span>
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
                       {s.feedback_comment && <div className="text-xs text-muted">“{s.feedback_comment}”</div>}
                     </td>
                     <td className="py-2 pr-3" title={s.judge ? [s.judge.summary, ...s.judge.policy_violations].join(" · ") : "Not reviewed yet (npm run evals:prod)"}>
@@ -404,7 +429,7 @@ export default function StaffDashboard() {
                       )}
                     </td>
                     <td className="py-2 text-right">
-                      <button type="button" onClick={() => setOpenSession(s.id)} className="text-brand hover:underline">
+                      <button type="button" onClick={() => setOpenSession(s.id)} className="min-h-9 rounded-lg px-3 font-bold text-brand-strong hover:bg-surface-2">
                         View
                       </button>
                     </td>
