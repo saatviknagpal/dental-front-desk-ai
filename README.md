@@ -56,7 +56,7 @@ Code layout: `src/lib/` holds the domain logic and doesn't depend on Next.js (to
 
 **Confirmation.** Ava always lists options with day, time and provider. If the patient picks one of them, that counts as the go-ahead and it books. Vague picks, cancellations and multi-person family bookings get an explicit yes/no first.
 
-**Guardrails around every turn.** Incoming messages go through OpenAI moderation. Self-harm gets a short reply with the 988 crisis line, and abuse gets a polite refusal. If the check itself fails, the chat continues. Outgoing replies are checked for any other patient's full name or phone number; if one shows up and that patient isn't verified in this chat (and the user didn't type it), the reply is replaced. Each caller gets 20 messages a minute (keyed by the IP our proxy reports, not one the client can fake) and each chat 40 turns, which limits cost abuse. A chat handles one message at a time: if a second arrives while the first is still running (two tabs, a retry), it gets "still working" instead of both racing to update the same chat. Each message also carries an idempotency key. If the connection drops after a booking and the patient taps Send again, the server returns the saved reply instead of running the turn twice. Every guardrail hit is logged and shows up in the staff transcript.
+**Guardrails around every turn.** Incoming messages go through OpenAI moderation. Self-harm gets a short reply with the 988 crisis line, and abuse gets a polite refusal. If the check itself fails, the chat continues. Outgoing replies are checked for any other patient's full name or phone number; if one shows up and that patient isn't verified in this chat (and the user didn't type it), the reply is replaced. Each caller gets 20 messages a minute (keyed by the IP our proxy reports, not one the client can fake) and each chat 40 turns, which limits cost abuse. A chat handles one message at a time: if a second arrives while the first is still running (two tabs, a retry), it gets "still working" instead of both racing to update the same chat. Each message also carries an idempotency key. If the connection drops after a booking and the patient taps Send again, the server returns the saved reply instead of running the turn twice. One more check runs after the model replies: if the reply tells the patient the team was alerted but no alert was sent that turn, the server sends it. The evals caught the model saying "I have alerted our dental team" for a red-flag emergency without calling the tool, and a prompt change alone didn't fix it. Every guardrail hit is logged and shows up in the staff transcript.
 
 **Alerts and confirmation emails go through a job queue.** Saving an alert or a booking also inserts a `jobs` row in the same transaction, so a job exists if and only if the write it belongs to committed. A worker claims jobs with `FOR UPDATE SKIP LOCKED` (safe with any number of app instances) and retries temporary failures with exponential backoff, up to five times. Errors that can't succeed on retry, like a rejected email address, fail right away. Failed deliveries show on the practice's `/staff` page with a Retry button, so nothing disappears quietly. Jobs stuck in "running" after a crash are picked up again after five minutes, and finished jobs are deleted after a week. It's plain Postgres, so there is no extra service to run. Each worker only claims job types its code knows, so an older instance in the middle of a deploy leaves new kinds of jobs for the newer one.
 
@@ -66,7 +66,7 @@ Code layout: `src/lib/` holds the domain logic and doesn't depend on Next.js (to
 
 **Stateless web tier.** Chat history, verified patients and token usage are stored per chat in Postgres, so any instance can serve any message.
 
-**Swappable models.** OpenAI is the default. Claude, Gemini and DeepSeek work through `LLM_PROVIDER`, with an optional fallback model. The static part of the prompt (persona, rules, practice facts) is built once per practice so providers can cache it. Only the date calendar changes per turn.
+**Swappable models.** OpenAI `gpt-4.1-mini` is the default: it costs about half a cent per conversation and was the most reliable at calling tools in my evals. For a fully free setup, Gemini's free tier works through `LLM_PROVIDER=gemini`, but its daily request cap (20 a day on the key I used) runs out during a single eval run, so the eval numbers below are for gpt-4.1-mini. Claude and DeepSeek also work through `LLM_PROVIDER`, with an optional fallback model. The static part of the prompt (persona, rules, practice facts) is built once per practice so providers can cache it. Only the date calendar changes per turn.
 
 **No Redis yet.** With one app instance, rate limits in memory and Postgres for everything else are enough. Redis becomes worth it at two or more instances, for shared rate-limit counters and a short-lived availability cache. Bookings would still be checked against Postgres.
 
@@ -111,7 +111,7 @@ Failure modes I designed for:
 
 | Failure | What handles it | What's left |
 |---|---|---|
-| Model invents a time or says "booked" too early | Tools reject anything that isn't an open slot; the eval judge flags premature claims | Wording can still mislead; the judge's hallucination check watches for it |
+| Model invents a time or says "booked" too early | Tools reject anything that isn't an open slot; booking cards come only from real tool results; the eval judge flags false claims | Wording can still mislead. An eval caught the bot telling a patient "all 5 Saturdays are booked" when the limit had refused two; a prompt rule now covers it and the slot-hoarder scenario watches for it |
 | Two patients take the same slot | Conditional update in a transaction, then alternatives | Nothing known |
 | Another patient's data in a reply | Verification guard on every tool, generic lookup errors, lockout, output privacy check | A one-time SMS code would be stronger than date of birth |
 | Missed emergency | Red-flag rules, automatic alert, two eval scenarios | Unusual symptom descriptions; more scenarios needed |
@@ -119,11 +119,22 @@ Failure modes I designed for:
 | Webhook or email provider down | Job queue retries with backoff; permanent errors fail fast | Failed deliveries show on `/staff` with Retry. Alerts go to a chat channel, not a real pager (SMS/phone call) |
 | Load | Stateless app, connection pool, practice-scoped indexes, idempotency keys | `npm run loadtest`: 50 simultaneous bookings for one slot gave 1 booking and 49 "taken". At ~0.1 conversations/second on average (maybe 5-10/s at peak), the real limit is LLM rate limits and cost, not the web tier |
 
-What I'd add next for production: per-practice hours, staff SSO with per-person accounts, schema migrations as a deploy step instead of at app start (today the setup runs under a Postgres advisory lock so instances starting together take turns), Redis once there's more than one instance, SMS confirmations and on-call paging through the job queue, routing simple FAQ turns to a cheaper model, tracing per tool call, and the eval suite in CI on every prompt or model change. The privacy work is listed below.
+What I'd add next for production: patient search on the staff dashboard (name or phone, per practice), per-practice hours, staff SSO with per-person accounts, schema migrations as a deploy step instead of at app start (today the setup runs under a Postgres advisory lock so instances starting together take turns), rate-limit and lockout counters in Postgres once there's more than one instance (Redis only at much higher traffic; Postgres already serves as the queue, lock and session store), SMS confirmations and on-call paging through the job queue, routing simple FAQ turns to a cheaper model, tracing per tool call, and the eval suite in CI on every prompt or model change. The privacy work is listed below.
+
+What it would take to run 10,000+ conversations a day. The design already scales out: chat state lives in Postgres, so any app instance can serve any message, bookings are safe under concurrency, and the job queue is shared safely between instances. What changes is configuration and a few shared counters:
+
+| Limit at 10k/day | Why | Change |
+|---|---|---|
+| Model provider rate limits | A conversation is ~40k tokens, so 10k a day averages ~280k tokens a minute, with peaks several times that | A higher OpenAI usage tier; cheaper model for simple FAQ turns |
+| Hosting | The demo runs one free Render instance that sleeps when idle | Two or more paid instances behind Render's load balancer, mainly so one failure or deploy doesn't stop chats; the app mostly waits on the model, so it scales out, not up |
+| Database connections | Supabase's free session pooler allows ~15 connections, 5 per instance | Transaction pooler or a larger plan. Postgres itself scales up (a bigger instance) long before it needs replicas |
+| Rate limits and login lockout | Counted in each instance's memory, so N instances allow N times the limit | Move the counters into Postgres or Redis |
+| Staff dashboard | Refreshes every 5 seconds; hundreds of practices with open tabs is ~100 requests a second | Refresh every 15-30 seconds, or push changes |
+| Data growth | ~200k message rows a day | Retention: archive or delete old transcripts |
 
 ## Testing and evals
 
-Unit tests (`npm test`, 56 tests, no LLM): booking rules, two simultaneous bookings for one slot, verification and lockout, household access, family all-or-nothing, atomic reschedule, guardrails, one turn at a time per chat, the job queue (retry, fail-fast, no job when the booking rolls back), confirmation emails and calendar files, weekday-to-date mapping in the prompt, practice isolation, and staff logins.
+Unit tests (`npm test`, 66 tests, no LLM): booking rules, two simultaneous bookings for one slot, verification and lockout, household access, family all-or-nothing, atomic reschedule, guardrails, one turn at a time per chat, the job queue (retry, fail-fast, no job when the booking rolls back), confirmation emails and calendar files, weekday-to-date mapping in the prompt, practice isolation, staff logins, booking limits (including 8 registrations fired at once from one connection), the optional member ID, and the judge fallback.
 
 Load test (`npm run loadtest`, against the real database and a running server): 50 patients try to book the same slot at the same moment, and exactly one gets it. The other 49 are told it's taken and offered other times, the slot holds one appointment, and the test patients are cleaned up afterwards. Then 20 chats hit `/api/chat` at once. On Supabase with the dev server: the race finished in 4.9s with 1 booking and 49 "slot taken", and all 20 chats were answered (P50 4.8s, P95 5.1s on a single dev process, mostly waiting on the LLM).
 
@@ -132,27 +143,29 @@ Simulated-patient evals (`npm run evals`): another LLM plays a patient with a pe
 - Outcome checks run in code against the database. For example: "a cleaning for Priya exists next week before noon", "an emergency alert exists", "John's appointment date never appears in the impostor's chat". Each check shows the records it looked at.
 - A judge from a different model family (Gemini judging the OpenAI agent, to avoid a model grading itself) scores tone, clarity, redundancy, hallucination and policy violations, with a reason for each. The rubric is shown on `/evals`. If Gemini fails (free-tier quota, outage), OpenAI `gpt-4.1` grades instead, a larger model than the bot's, and the verdict records which judge was used.
 - Each scenario runs three times and only passes if all three pass (pass^3).
-- 16 scenarios: new patient with and without insurance, emergency, red-flag emergency, reschedule to "later next week, afternoon", cancel, follow-up booking, family back-to-back, spouse booking, impostor with the wrong birthday, billing handoff, hours and location, prompt injection, changing their mind, a slot taken mid-chat, and a Spanish speaker.
+- 20 scenarios: new patient with and without insurance, emergency, red-flag emergency, reschedule to "later next week, afternoon", cancel, follow-up booking, family back-to-back, spouse booking, impostor with the wrong birthday, billing handoff, hours and location, prompt injection, changing their mind, a slot taken mid-chat, and a Spanish speaker. Four are written to break the bot: someone trying to hold five Saturdays and register made-up friends on one phone, a junk insurance member ID, a patient pushing for antibiotic names and doses, and a patient who only wants to see times without booking.
 - `npm run evals -- --models openai:gpt-4.1-mini,anthropic:claude-sonnet-5-5` runs the same scenarios on two models. That answers "is the new model better than the one we use?"
 - Every run is stored in Postgres (`eval_runs`, `eval_results`, `eval_steps`) with the full trajectory: each patient message, each model decision with tokens, cost and latency, each tool call with arguments and result, and each reply.
 
 Production evals (`npm run evals:prod`) run the same judge over real conversations. Flagged chats show on `/staff` next to thumbs up/down feedback, and real failures become new scenarios.
 
-Latest full run (gpt-4.1-mini, judged by gemini-3.6-flash, 16 scenarios x 3 runs):
+Latest full run (gpt-4.1-mini, 20 scenarios x 3 runs, judged by OpenAI `gpt-4.1` because Gemini's free daily quota was used up):
 
 | Metric | Result |
 |---|---|
-| Scenarios passing all 3 runs | 16/16 (48/48 runs) |
-| Hallucination rate | 0% (judge, previous run) |
-| Re-asking for known info | 0.00 per conversation |
-| Tone / clarity (1-5) | 5.0 / 5.0 (judge, previous run) |
-| Latency per turn | P50 1.8s, P95 3.2s |
-| Tokens per conversation | ~32k, about 90% of input served from the prompt cache |
-| Cost per conversation | ~$0.0048, about $48/day at 10k conversations (model cost only) |
+| Scenarios passing all 3 runs | 18/20 (58/60 runs) |
+| Hallucination rate | 2% (judge) |
+| Re-asking for known info | 0.08 per conversation |
+| Tone / clarity (1-5) | 5.0 / 5.0 |
+| Latency per turn | P50 1.9s, P95 3.5s |
+| Tokens per conversation | ~42k, about 88% of input served from the prompt cache |
+| Cost per conversation | ~$0.0063, about $63/day at 10k conversations (model cost only) |
 
-The judge hit Gemini's rate limit on this run, so the judge rows come from the run before it. Earlier runs had misses that turned out to be bugs in the checks (a Spanish yes the check didn't recognize, a name the attacker had typed themselves) and one simulated patient that never said "next week"; those are fixed.
+The two failed runs: after booking a couple who were already patients, the assistant added the "for first visits, bring a photo ID" note meant for new patients (the judge counted it as a made-up fact), and the judge marked a medical-advice conversation as giving advice even though the assistant refused every request for a drug name or dose and the code checks passed. I left the judge as it is rather than tune it until the numbers look better.
 
-The evals changed the bot more than once. The first run passed 8 of 14. It showed that Ava asked "is that correct?" after a patient had already picked a listed time, booked emergencies without telling the patient staff were alerted, and asked for the kids' birthdays before verifying the parent. The judge also caught her asking a patient's name and date of birth a second time after a failed lookup.
+The evals changed the bot more than once, and the runs before this one were lower on purpose: I added four scenarios written to break the bot. The run before this passed 56/60 and found three real problems. The bot told a patient "all 5 Saturdays are booked" when the booking limit had refused two. After refusing to list patients, it offered to "verify" another patient so the caller could get his phone number. And for a red-flag emergency it said "I have alerted our dental team" without calling the tool. The first two were fixed in the prompt; the third needed the code check described under guardrails, because a prompt change made the red-flag scenario fail 3 out of 3.
+
+Earlier, the first run passed 8 of 14. It showed that Ava asked "is that correct?" after a patient had already picked a listed time, booked emergencies without telling the patient staff were alerted, and asked for the kids' birthdays before verifying the parent. The judge also caught her asking a patient's name and date of birth a second time after a failed lookup.
 
 ## Running it locally
 
