@@ -3,7 +3,7 @@
 //  - any username + STAFF_PASSWORD -> admin (every practice, plus the eval report)
 // Kept free of Node APIs so the edge middleware can use it.
 
-export type StaffAccess = "admin" | string; // a practice slug
+export type StaffAccess = "admin" | string;
 
 export const STAFF_ACCESS_HEADER = "x-staff-access";
 
@@ -19,15 +19,12 @@ export function staffAuthConfigured(): boolean {
   return !!process.env.STAFF_PASSWORD || Object.keys(practicePasswords()).length > 0;
 }
 
-/** Compare without stopping at the first different character, so response time doesn't hint at the password. */
 function safeEqual(a: string, b: string): boolean {
   let diff = a.length ^ b.length;
   for (let i = 0; i < Math.max(a.length, b.length); i++) diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
   return diff === 0;
 }
 
-// Wrong-password lockout per client IP.
-// shortcut: in-memory, so each app instance counts on its own; move to Redis/Postgres when running several instances.
 export const LOGIN_MAX_FAILURES = 10;
 export const LOGIN_LOCK_MS = 15 * 60_000;
 const failures = new Map<string, { count: number; first: number }>();

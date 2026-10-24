@@ -15,7 +15,6 @@ import { executeTool, TOOL_DEFINITIONS, type ToolContext } from "./tools";
 
 const MAX_TOOL_ROUNDS = 8;
 const MAX_HISTORY_MESSAGES = 80;
-/** A reply telling the patient staff were alerted ("I've alerted our dental team", "I've let the front desk know"). */
 export const ALERT_CLAIM = /\bI(?:'ve| have|'m| am)?\s+(?:(?:also|just|already)\s+)*(?:alerted|notified|alerting|notifying|let)\s+(?:our|the)\s+(?:dental\s+)?(?:team|staff|front desk|office)\b/i;
 export const MAX_USER_CHARS = 2000;
 
@@ -33,11 +32,8 @@ export interface TurnResult {
   toolEvents: ToolEvent[];
   model: string;
   degraded?: boolean;
-  /** Tokens + estimated cost of the LLM calls made in this turn. */
   usage: Usage;
-  /** Appointments booked or moved this turn (for confirmation cards). */
   bookings: BookingCard[];
-  /** Times offered this turn, from real tool results (for tap-to-pick buttons). */
   choices: { label: string; message: string }[];
 }
 
@@ -54,7 +50,6 @@ export interface BookingCard {
 
 type Slot = { display: string; provider_name: string };
 
-/** Pull confirmation cards and tap-to-pick choices out of a tool result. */
 function collectUi(name: string, result: Record<string, unknown>, bookings: BookingCard[], choices: { label: string; message: string }[]) {
   if (!result.ok) {
     if (Array.isArray(result.alternatives)) choices.splice(0, choices.length, ...(result.alternatives as Slot[]).map(slotChoice));
@@ -85,13 +80,11 @@ interface SessionRow {
 
 const fallbackReply = () => `I'm sorry, I'm having trouble on my end right now. You can call us at ${currentPractice().phone} (Mon-Sat, 8 AM-6 PM), or try again in a moment. If this is a dental emergency with trouble breathing, swallowing or uncontrolled bleeding, please call 911.`;
 
-/** A second message arrived for a chat whose previous turn is still running. */
 export class SessionBusyError extends Error {}
 
 async function loadSession(sessionId: string | undefined, caller?: string): Promise<{ id: string; messages: ChatMessage[]; ctx: ToolContext }> {
   const practiceId = currentPractice().id;
   if (sessionId) {
-    // Claim the chat for this turn; the lease expires on its own if the server dies mid-turn.
     const row = await db.get<SessionRow>(
       `UPDATE sessions SET busy_until = now() + interval '2 minutes'
        WHERE id = $1 AND practice_id = $2 AND (busy_until IS NULL OR busy_until < now()) RETURNING *`,
@@ -112,7 +105,6 @@ async function loadSession(sessionId: string | undefined, caller?: string): Prom
   return { id, messages: [], ctx: { sessionId: id, verified: [], household: [], failedVerifications: 0, caller } };
 }
 
-/** Keep the last N messages, cutting only at a user message so tool calls stay paired with results. */
 function trimHistory(messages: ChatMessage[]): ChatMessage[] {
   if (messages.length <= MAX_HISTORY_MESSAGES) return messages;
   let start = messages.length - MAX_HISTORY_MESSAGES;
@@ -157,7 +149,6 @@ async function callModel(messages: ChatMessage[]): Promise<CompletionResponse & 
 
 export async function runTurn(sessionId: string | undefined, userText: string, caller?: string, requestId?: string): Promise<TurnResult> {
   if (!requestId) return runTurnOnce(sessionId, userText, caller);
-  // Claim the id first; a second request with the same id gets the saved reply, or "busy" while the first still runs.
   const claimed = await db.get("INSERT INTO chat_requests (request_id) VALUES ($1) ON CONFLICT DO NOTHING RETURNING request_id", [requestId]);
   if (!claimed) {
     const prev = await db.get<{ response: TurnResult | null }>("SELECT response FROM chat_requests WHERE request_id = $1", [requestId]);
@@ -169,7 +160,7 @@ export async function runTurn(sessionId: string | undefined, userText: string, c
     await db.run("UPDATE chat_requests SET response = $2 WHERE request_id = $1", [requestId, JSON.stringify(result)]);
     return result;
   } catch (err) {
-    await db.run("DELETE FROM chat_requests WHERE request_id = $1", [requestId]); // let a retry run it
+    await db.run("DELETE FROM chat_requests WHERE request_id = $1", [requestId]);
     throw err;
   }
 }
@@ -188,6 +179,7 @@ async function runClaimedTurn(session: Awaited<ReturnType<typeof loadSession>>, 
   const { messages, ctx } = session;
   const text = userText.trim().slice(0, MAX_USER_CHARS);
   messages.push({ role: "user", content: text });
+  ctx.userTexts = messages.filter((m) => m.role === "user").map((m) => m.content as string);
   await logMessage(session.id, "user", text);
 
   const toolEvents: ToolEvent[] = [];
@@ -215,7 +207,6 @@ async function runClaimedTurn(session: Awaited<ReturnType<typeof loadSession>>, 
       for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
         const res = await callModel(messages);
         model = res.model;
-        // Trace every model decision with its token usage and cost (shown in /staff and /evals).
         const u = res.usage ?? { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
         const step = { calls: 1, ...u, costUsd: costUsd(model, u.inputTokens, u.cachedInputTokens, u.outputTokens), llmMs: res.ms };
         usage = addUsage(usage, step);
@@ -247,7 +238,6 @@ async function runClaimedTurn(session: Awaited<ReturnType<typeof loadSession>>, 
         }
       }
       if (!reply) {
-        // Too many tool rounds: stop looping and hand off rather than spin.
         reply = `I'm sorry, I'm having trouble finishing that. I've asked our front desk to follow up, or you can call us at ${currentPractice().phone}.`;
         await executeTool(ctx, "notify_staff", { type: "human_handoff", urgency: "normal", summary: "Assistant hit its tool-call limit mid-conversation; please review the transcript and follow up." });
         degraded = true;
@@ -258,7 +248,6 @@ async function runClaimedTurn(session: Awaited<ReturnType<typeof loadSession>>, 
     }
   }
 
-  // The model sometimes says "I've alerted the team" without calling notify_staff. Keep the promise in code.
   const alerted = toolEvents.some((e) => e.ok && (e.name === "notify_staff" || (e.name === "book_appointment" && e.args.appointment_type === "emergency")));
   if (!alerted && ALERT_CLAIM.test(reply)) {
     const urgent = /911|emergency room|\bER\b/i.test(reply);
@@ -269,7 +258,6 @@ async function runClaimedTurn(session: Awaited<ReturnType<typeof loadSession>>, 
     await logMessage(session.id, "guardrail", JSON.stringify({ rule: "alert-promise", result }));
   }
 
-  // Never send another patient's name or phone, whatever the model produced.
   const userTexts = messages.filter((m) => m.role === "user").map((m) => m.content as string);
   const leak = await checkOutput(reply, [...ctx.verified, ...ctx.household], userTexts);
   if (leak) {
@@ -280,7 +268,6 @@ async function runClaimedTurn(session: Awaited<ReturnType<typeof loadSession>>, 
   messages.push({ role: "assistant", content: reply });
   await logMessage(session.id, "assistant", reply);
   await saveSession(session.id, messages, ctx, model, usage);
-  // Offer tap-to-pick buttons only when the reply is still asking the patient to choose.
   return { sessionId: session.id, reply, toolEvents, model, degraded, usage, bookings, choices: bookings.length ? [] : choices };
 }
 

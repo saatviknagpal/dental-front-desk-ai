@@ -25,7 +25,6 @@
   --info-soft: #e7f0fc;
 }
 
-/* Light by default; the chat's display setting (or another page) opts into dark with data-theme="dark". */
 :root[data-theme="dark"] {
   --bg: #0b1316;
   --surface: #111c20;
@@ -98,7 +97,6 @@ summary {
   cursor: pointer;
 }
 
-/* In the base layer so utilities like focus-visible:outline-none can override it. */
 @layer base {
   :focus-visible {
     outline: 2px solid var(--brand);

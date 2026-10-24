@@ -11,7 +11,7 @@
 
 import "dotenv/config";
 
-process.env.DATABASE_POOL_MAX ||= "10"; // real concurrency: several transactions in flight at once
+process.env.DATABASE_POOL_MAX ||= "10";
 
 import { closeDb, db } from "@/lib/db";
 import { PRACTICES, withPractice } from "@/lib/practice";
@@ -33,20 +33,17 @@ const tool = (ctx: ToolContext, name: string, args: Record<string, unknown>): Pr
 
 async function bookingRace(): Promise<boolean> {
   console.log(`\n1) Booking race: ${BOOKERS} patients book the same slot at the same moment`);
-  // Names are letters only: the duplicate-patient check ignores digits and punctuation.
   const letters = (n: number) => n.toString(26).replace(/./g, (c) => String.fromCharCode(97 + parseInt(c, 26)));
   const runId = letters(Date.now() % 1e9);
   const ctxs = Array.from({ length: BOOKERS }, (_, i) => ctxFor(i));
   const patientIds: number[] = [];
   let keptPatient: number | null = null;
   try {
-    // Throwaway patients, registered through the real tool so each context is allowed to book for its patient.
     for (let i = 0; i < BOOKERS; i++) {
       const r = await tool(ctxs[i], "register_patient", { first_name: "Loadtest", last_name: `${runId}${letters(i)}`, date_of_birth: "1990-01-01", phone: `415556${String(i).padStart(4, "0")}` });
       if (!r.ok) throw new Error(`register failed: ${r.error}`);
       patientIds.push(r.patient.patient_id);
     }
-    // Default: 5+ weeks out so it never takes a time a demo patient might want. --keep: next week, so it shows on /staff.
     const today = startOfDay(practiceNow());
     const [from, to] = KEEP ? appointmentRange("next_week", today) : [addDays(today, 35), addDays(today, 49)];
     const found = await tool(ctxs[0], "find_available_slots", { appointment_type: "checkup", date_from: fmtDate(from), date_to: fmtDate(addDays(to, -1)) });
@@ -105,7 +102,6 @@ async function chatBurst(): Promise<boolean> {
       try {
         const res = await fetch(`${URL_BASE}/api/chat`, {
           method: "POST",
-          // Distinct client IPs so the per-caller rate limit measures throughput, not one noisy client.
           headers: { "Content-Type": "application/json", "X-Forwarded-For": `10.0.${Math.floor(i / 250)}.${i % 250}` },
           body: JSON.stringify({ message: "What are your hours on Saturday?", practice: PRACTICES[0].slug, requestId: `loadtest-${Date.now()}-${i}` }),
         });
@@ -123,7 +119,6 @@ async function chatBurst(): Promise<boolean> {
   if (ms.length) console.log(`   reply time: P50 ${(pct(ms, 50) / 1000).toFixed(1)}s · P95 ${(pct(ms, 95) / 1000).toFixed(1)}s · max ${(Math.max(...ms) / 1000).toFixed(1)}s`);
   const ok = ms.length === CHATS;
   console.log(`   result: ${ok ? "PASS (every chat answered)" : "FAIL"}`);
-  // Remove the test chats so they don't show up on the staff dashboard.
   const ids = results.map((r) => r.sessionId).filter((id): id is string => !!id);
   await db.run("DELETE FROM messages WHERE session_id = ANY($1)", [ids]);
   await db.run("DELETE FROM sessions WHERE id = ANY($1)", [ids]);

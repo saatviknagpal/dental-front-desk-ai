@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  startWorker(); // idempotent; also started at boot by instrumentation.ts
+  startWorker();
   const caller = clientIp(req.headers);
   if (!(await allowRequest(caller))) {
     return NextResponse.json({ error: "Too many messages. Please wait a minute and try again." }, { status: 429 });

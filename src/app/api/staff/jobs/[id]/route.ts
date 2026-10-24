@@ -5,7 +5,6 @@ import { staffScope } from "@/lib/staffGuard";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Retry a failed delivery (email or webhook) of the signed-in practice. */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const scope = staffScope(req);
   if (scope instanceof NextResponse) return scope;

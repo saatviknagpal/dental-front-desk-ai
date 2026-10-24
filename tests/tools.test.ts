@@ -3,7 +3,6 @@ import { db } from "@/lib/db";
 import { seed } from "@/lib/seed";
 import { executeTool, type ToolContext } from "@/lib/tools";
 
-// Clock pinned to Fri 2026-10-23 10:00 (see vitest.config.ts).
 
 const newCtx = (id = "test"): ToolContext => ({ sessionId: id, verified: [], household: [], failedVerifications: 0 });
 
@@ -31,10 +30,10 @@ beforeEach(async () => {
 
 describe("seed", () => {
   it("creates providers, patients, slots and existing appointments", async () => {
-    expect(await all("SELECT * FROM providers")).toHaveLength(7); // 2 practices
+    expect(await all("SELECT * FROM providers")).toHaveLength(7);
     expect(await all("SELECT * FROM patients")).toHaveLength(10);
     expect(await all("SELECT * FROM appointments WHERE status='booked'")).toHaveLength(5);
-    expect(await get("SELECT count(*)::int AS n FROM slots WHERE start_ts LIKE '2026-10-25%'")).toEqual({ n: 0 }); // Sunday
+    expect(await get("SELECT count(*)::int AS n FROM slots WHERE start_ts LIKE '2026-10-25%'")).toEqual({ n: 0 });
   });
 });
 
@@ -56,7 +55,7 @@ describe("find_available_slots", () => {
   });
 
   it("offers next_available when nothing matches", async () => {
-    const r = await call(newCtx(), "find_available_slots", { appointment_type: "checkup", date_from: "2026-10-25", date_to: "2026-10-25" }); // Sunday
+    const r = await call(newCtx(), "find_available_slots", { appointment_type: "checkup", date_from: "2026-10-25", date_to: "2026-10-25" });
     expect(r.slots).toHaveLength(0);
     expect(r.next_available.length).toBeGreaterThan(0);
   });
@@ -94,8 +93,8 @@ describe("verification guard", () => {
   it("gives adult household members booking-only access, minors full access", async () => {
     const ctx = newCtx();
     await call(ctx, "verify_patient", { full_name: "Maria Garcia", date_of_birth: "1987-04-09" });
-    expect((await call(ctx, "list_appointments", { patient_id: 5 })).error).toBe("NOT_VERIFIED"); // Carlos (adult)
-    expect((await call(ctx, "list_appointments", { patient_id: 6 })).ok).toBe(true); // Sofia (minor)
+    expect((await call(ctx, "list_appointments", { patient_id: 5 })).error).toBe("NOT_VERIFIED");
+    expect((await call(ctx, "list_appointments", { patient_id: 6 })).ok).toBe(true);
   });
 });
 
@@ -108,7 +107,7 @@ describe("booking", () => {
     const r = await call(ctx, "book_appointment", { patient_id: reg.patient.patient_id, appointment_type: "cleaning", start_time: slot.start_time, provider_id: slot.provider_id });
     expect(r.ok).toBe(true);
     const booked = await all<{ status: string }>("SELECT status FROM slots WHERE appointment_id = $1", [r.appointment.appointment_id]);
-    expect(booked).toHaveLength(2); // 60 min = 2 slots
+    expect(booked).toHaveLength(2);
   });
 
   it("rejects duplicate registration", async () => {
@@ -127,7 +126,7 @@ describe("booking", () => {
     const second = await call(b, "book_appointment", { ...args, patient_id: 2 });
     expect(second.error).toBe("SLOT_TAKEN");
     expect(second.alternatives.length).toBeGreaterThan(0);
-    expect(await all("SELECT * FROM appointments WHERE patient_id = 2 AND type='checkup'")).toHaveLength(0); // rolled back
+    expect(await all("SELECT * FROM appointments WHERE patient_id = 2 AND type='checkup'")).toHaveLength(0);
   });
 
   it("exactly one of two simultaneous bookings for the same slot wins", async () => {
@@ -157,8 +156,8 @@ describe("booking", () => {
     const base = { patient_id: 1, appointment_type: "cleaning", provider_id: 3 };
     expect((await call(ctx, "book_appointment", { ...base, start_time: "2026-10-25 10:00" })).error).toBe("CLOSED");
     expect((await call(ctx, "book_appointment", { ...base, start_time: "2026-10-22 10:00" })).error).toBe("IN_PAST");
-    expect((await call(ctx, "book_appointment", { ...base, start_time: "2026-10-27 17:30" })).error).toBe("OUTSIDE_HOURS"); // 60 min would end 18:30
-    expect((await call(ctx, "book_appointment", { ...base, start_time: "2026-10-27 12:00" })).error).toBe("SLOT_TAKEN"); // lunch is blocked
+    expect((await call(ctx, "book_appointment", { ...base, start_time: "2026-10-27 17:30" })).error).toBe("OUTSIDE_HOURS");
+    expect((await call(ctx, "book_appointment", { ...base, start_time: "2026-10-27 12:00" })).error).toBe("SLOT_TAKEN");
   });
 
   it("emergency requires a summary and always notifies staff", async () => {
@@ -218,7 +217,6 @@ describe("family scheduling", () => {
     expect(r.options.length).toBeGreaterThan(0);
     const opt = r.options[0].bookings;
     expect(opt).toHaveLength(3);
-    // back-to-back: each starts when the previous ends
     const minutes = (ts: string) => new Date(ts.replace(" ", "T") + "Z").getTime() / 60000;
     expect(minutes(opt[1].start_time) - minutes(opt[0].start_time)).toBe(60);
     expect(minutes(opt[2].start_time) - minutes(opt[1].start_time)).toBe(60);
@@ -228,7 +226,6 @@ describe("family scheduling", () => {
     expect(booked.ok).toBe(true);
     expect(booked.appointments).toHaveLength(3);
 
-    // Re-booking the same option fails entirely and books nothing extra
     const again = await call(ctx, "book_family_appointments", { bookings: opt.map((b: Record<string, unknown>) => ({ patient_id: b.patient_id, appointment_type: b.appointment_type, start_time: b.start_time, provider_id: b.provider_id })) });
     expect(again.ok).toBe(false);
     expect(await all("SELECT * FROM appointments WHERE patient_id IN (4,6,7) AND status='booked'")).toHaveLength(3);

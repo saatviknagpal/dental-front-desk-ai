@@ -12,7 +12,7 @@ describe("staff login", () => {
     vi.stubEnv("STAFF_PASSWORDS", JSON.stringify({ "harbor-family": "harbor-pw" }));
     expect(staffAccess(basic("anyone", "admin-pw"))).toBe("admin");
     expect(staffAccess(basic("harbor-family", "harbor-pw"))).toBe("harbor-family");
-    expect(staffAccess(basic("bright-smile", "harbor-pw"))).toBeNull(); // right password, wrong practice
+    expect(staffAccess(basic("bright-smile", "harbor-pw"))).toBeNull();
     expect(staffAccess(basic("harbor-family", "nope"))).toBeNull();
     expect(staffAccess("Basic !!!not-base64")).toBeNull();
     expect(staffAccess(null)).toBeNull();
@@ -24,10 +24,10 @@ describe("staff login", () => {
     expect(loginLocked("1.2.3.4", t)).toBe(false);
     recordLoginFailure("1.2.3.4", t);
     expect(loginLocked("1.2.3.4", t)).toBe(true);
-    expect(loginLocked("5.6.7.8", t)).toBe(false); // other clients unaffected
-    expect(loginLocked("1.2.3.4", t + LOGIN_LOCK_MS + 1)).toBe(false); // lock expires
+    expect(loginLocked("5.6.7.8", t)).toBe(false);
+    expect(loginLocked("1.2.3.4", t + LOGIN_LOCK_MS + 1)).toBe(false);
     recordLoginFailure("9.9.9.9", t);
-    clearLoginFailures("9.9.9.9"); // a correct login resets the count
+    clearLoginFailures("9.9.9.9");
     expect(loginLocked("9.9.9.9", t)).toBe(false);
   });
 

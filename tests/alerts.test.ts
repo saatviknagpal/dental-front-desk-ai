@@ -27,8 +27,8 @@ describe("quality check queue", () => {
     await mk("one-turn", 1);
     await mk("graded", 3, true);
     expect(await withPractice(brightSmile, () => queueQualityChecks())).toBe(1);
-    expect(await withPractice(brightSmile, () => queueQualityChecks())).toBe(0); // already queued
-    expect(await withPractice(harbor, () => queueQualityChecks())).toBe(0); // other practice's chats untouched
+    expect(await withPractice(brightSmile, () => queueQualityChecks())).toBe(0);
+    expect(await withPractice(harbor, () => queueQualityChecks())).toBe(0);
     const job = await db.get<{ payload: { session_id: string; practice: string } }>("SELECT payload FROM jobs WHERE type = 'quality_check'");
     expect(job?.payload).toEqual({ session_id: "two-turns", practice: "bright-smile" });
   });
@@ -50,7 +50,6 @@ describe("staff alerts", () => {
     const { text } = JSON.parse(sent[0].body);
     expect(text).toBe(`URGENT: New emergency at ${harbor.name}. Details on the front desk dashboard: https://app.test/staff?practice=harbor-family`);
     expect(text).not.toMatch(/Maria|molar|6175550123/);
-    // The full summary is still stored for the dashboard.
     expect((await db.get<{ summary: string }>("SELECT summary FROM notifications ORDER BY id DESC LIMIT 1"))?.summary).toBe(summary);
   });
 

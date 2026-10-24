@@ -17,7 +17,6 @@ export interface Practice {
   timezone: string;
 }
 
-// shortcut: practices are defined in code; move them to a `practices` table with an admin UI to onboard practices without a deploy.
 export const PRACTICES: Practice[] = [
   {
     id: 1,
@@ -49,8 +48,7 @@ export const withPractice = <T>(p: Practice, fn: () => T): T => current.run(p, f
 export const currentPractice = (): Practice => current.getStore() ?? PRACTICES[0];
 export const practiceBySlug = (slug: unknown): Practice | undefined => PRACTICES.find((p) => p.slug === slug);
 
-// shortcut: every practice shares this Mon-Sat 8-6 schedule; move these into Practice when one needs different hours.
-export const OPEN_WEEKDAYS = new Set([1, 2, 3, 4, 5, 6]); // Mon..Sat (0 = Sunday)
+export const OPEN_WEEKDAYS = new Set([1, 2, 3, 4, 5, 6]);
 export const OPEN_HOUR = 8;
 export const CLOSE_HOUR = 18;
 export const SLOT_MINUTES = 30;

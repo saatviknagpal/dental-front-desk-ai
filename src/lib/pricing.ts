@@ -22,7 +22,7 @@ const PRICES: Record<string, Price> = {
 
 export interface Usage {
   calls: number;
-  inputTokens: number; // includes cached
+  inputTokens: number;
   cachedInputTokens: number;
   outputTokens: number;
   costUsd: number;

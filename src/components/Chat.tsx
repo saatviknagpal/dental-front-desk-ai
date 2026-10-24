@@ -66,7 +66,6 @@ const store = {
       if (value === null) localStorage.removeItem(key);
       else localStorage.setItem(key, value);
     } catch {
-      /* storage unavailable (private mode) — fine */
     }
   },
 };
@@ -74,7 +73,6 @@ const store = {
 const uid = () => Math.random().toString(36).slice(2);
 class PatientError extends Error {}
 
-/** Minimal, safe rendering: paragraphs, "- " bullet lists, **bold**. No HTML injection. */
 function RichText({ text }: { text: string }) {
   const blocks: { type: "p" | "ul"; lines: string[] }[] = [];
   for (const raw of text.split("\n")) {
@@ -139,10 +137,8 @@ export default function Chat({ greeting, practice }: Props) {
   const [infoOpen, setInfoOpen] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  // Resending the same text after a failure reuses its request id, so the server never runs it twice.
   const retryRef = useRef<{ text: string; id: string } | null>(null);
 
-  // Restore per-viewer prefs. Conversations always start fresh on reload (privacy on shared computers).
   useEffect(() => {
     const prefs = store.get(PREFS_KEY);
     if (prefs) {
@@ -152,7 +148,6 @@ export default function Chat({ greeting, practice }: Props) {
         setLargeText(!!p.largeText);
         setDarkMode(!!p.darkMode);
       } catch {
-        /* ignore */
       }
     }
     store.set(SESSION_KEY, null);
@@ -185,7 +180,6 @@ export default function Chat({ greeting, practice }: Props) {
           body: JSON.stringify({ sessionId, message: trimmed, practice: practice.slug, requestId }),
         });
         const data = await res.json().catch(() => ({}));
-        // Rate limit, too long and "still working" come with a message the patient should see.
         if ([409, 413, 429].includes(res.status) && data.error) throw new PatientError(data.error);
         if (!res.ok) throw new Error("Request failed");
         retryRef.current = null;

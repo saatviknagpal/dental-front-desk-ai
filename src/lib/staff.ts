@@ -9,7 +9,6 @@ export type AppointmentRange = (typeof APPOINTMENT_RANGES)[number];
 const MAX_APPOINTMENTS = 500;
 export const SESSIONS_PAGE = 20;
 
-/** [from, to) for an appointments view. Weeks run Monday to Saturday (closed Sundays). */
 export function appointmentRange(range: AppointmentRange, today: Date): [Date, Date] {
   const nextMon = addDays(today, (8 - weekday(today)) % 7 || 7);
   if (range === "today") return [today, addDays(today, 1)];
@@ -46,7 +45,6 @@ export async function dashboard(practiceId: number, opts: { range?: AppointmentR
 
   const appointments = apptRows.slice(0, MAX_APPOINTMENTS);
 
-  // shortcut: LIMIT grows with "Load more" (offset-style); switch to a last_active_at cursor if staff page through thousands.
   const sessionRows = await db.all<Record<string, unknown>>(
     `SELECT s.id, s.started_at, s.last_active_at, s.model, s.rating, s.feedback_comment, s.judge, s.usage,
             (SELECT count(*)::int FROM messages m WHERE m.session_id = s.id AND m.role = 'user') AS user_messages,

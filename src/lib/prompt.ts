@@ -83,13 +83,11 @@ Closing: after a booking, briefly recap the visit, mention what to bring for fir
 
 const staticByPractice = new Map<number, string>();
 
-/** Static part of the system prompt for the current practice (built once per practice, so it stays cacheable). */
 export function systemStatic(p: Practice = currentPractice()): string {
   if (!staticByPractice.has(p.id)) staticByPractice.set(p.id, buildStatic(p));
   return staticByPractice.get(p.id)!;
 }
 
-/** Dynamic part: today's date/time plus a calendar so the model never has to do weekday math. */
 export function systemDynamic(now = practiceNow()): string {
   const today = startOfDay(now);
   const lines: string[] = [];
@@ -97,14 +95,13 @@ export function systemDynamic(now = practiceNow()): string {
     const d = addDays(today, i);
     lines.push(`${fmtDate(d)} ${dayName(d).slice(0, 3)}${weekday(d) === 0 ? " (closed)" : ""}${i === 0 ? " (today)" : i === 1 ? " (tomorrow)" : ""}`);
   }
-  const dow = weekday(today); // 0 Sun
+  const dow = weekday(today);
   const daysToNextMon = dow === 0 ? 1 : 8 - dow;
   const nextMon = addDays(today, daysToNextMon);
   const thisSat = addDays(today, (6 - dow + 7) % 7);
   const firstNextMonth = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() + 1, 1));
   const lastThisMonth = addDays(firstNextMonth, -1);
   const r = (a: Date, b: Date) => `${fmtDate(a)} to ${fmtDate(b)}`;
-  // Models misread weekday math off the calendar table, so spell out each day name.
   const dayLines = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
     .map((name, i) => `- "${name}" / "this ${name}": ${fmtDate(addDays(today, (i + 1 - dow + 7) % 7))}; "next ${name}": ${fmtDate(addDays(nextMon, i))}`)
     .join("\n");

@@ -30,7 +30,6 @@ export default function ThemeToggle() {
     try {
       localStorage.setItem(PREFS_KEY, JSON.stringify({ ...readPrefs(), darkMode: next }));
     } catch {
-      /* storage unavailable (private mode) — fine */
     }
   };
 

@@ -6,7 +6,6 @@ import { staffScope } from "@/lib/staffGuard";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Wipes demo data for every practice, so admins only. */
 export async function POST(req: Request) {
   const scope = staffScope(req);
   if (scope instanceof NextResponse) return scope;

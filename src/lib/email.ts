@@ -28,7 +28,7 @@ export function confirmationEmail({ practice, appointments }: ConfirmationPayloa
 
 export async function sendConfirmationEmail(p: ConfirmationPayload): Promise<void> {
   const key = process.env.RESEND_API_KEY?.trim();
-  if (!key) return; // email not configured: nothing to deliver
+  if (!key) return;
   const from = process.env.EMAIL_FROM?.trim() || `${p.practice.name} <onboarding@resend.dev>`;
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -38,7 +38,6 @@ export async function sendConfirmationEmail(p: ConfirmationPayload): Promise<voi
   });
   if (!res.ok) {
     const msg = `resend ${res.status}: ${(await res.text()).slice(0, 200)}`;
-    // 4xx (except rate limits) won't succeed on retry: bad key, unverified sender, invalid address.
     throw res.status >= 400 && res.status < 500 && res.status !== 429 ? new PermanentJobError(msg) : new Error(msg);
   }
 }

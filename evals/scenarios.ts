@@ -25,7 +25,6 @@ export interface Scenario {
   goal: string;
   opening: string;
   maxTurns?: number;
-  /** Optional hook between turns (e.g. simulate another patient grabbing a slot). */
   afterTurn?: (turn: Turn, index: number, sessionId: string) => Promise<void>;
   checks: (turns: Turn[]) => Promise<CheckResult[]>;
 }
@@ -33,28 +32,21 @@ export interface Scenario {
 const replies = (t: Turn[]) => t.map((x) => x.reply).join("\n");
 const tools = (t: Turn[]) => t.flatMap((x) => x.toolEvents);
 const called = (t: Turn[], name: string, ok = true) => tools(t).some((e) => e.name === name && (!ok || e.ok));
-/** evidence = the records/values the check looked at (always shown); failMsg = extra explanation shown only on failure. */
 const check = (name: string, pass: boolean, evidence?: string, failMsg?: string): CheckResult => ({
   name,
   pass,
   detail: [evidence, pass ? undefined : failMsg].filter(Boolean).join(" — ") || undefined,
 });
 
-// Affirmative or an explicit pick of an offered option (hybrid confirmation policy), English or Spanish.
-const YES = /\b(yes|yeah|yep|yup|sure|ok|okay|book|sounds good|perfect|works|great|please|confirm|do it|go ahead|correct|that's right|i'll take|take the|go with|let's do)\b|(?<![\p{L}])(s[ií]|correcto|de acuerdo|claro|perfecto|vale|me sirve|est[aá] bien|acepto|elijo|me quedo|prefiero|primera|reserv\p{L}*|por favor)(?![\p{L}])/iu; // \b treats "í" as a non-letter, so use Unicode letter lookarounds
+const YES = /\b(yes|yeah|yep|yup|sure|ok|okay|book|sounds good|perfect|works|great|please|confirm|do it|go ahead|correct|that's right|i'll take|take the|go with|let's do)\b|(?<![\p{L}])(s[ií]|correcto|de acuerdo|claro|perfecto|vale|me sirve|est[aá] bien|acepto|elijo|me quedo|prefiero|primera|reserv\p{L}*|por favor)(?![\p{L}])/iu;
 
 const SEARCHES = new Set(["find_available_slots", "find_family_slots"]);
 
-/**
- * Every write must follow a patient "yes" or pick given after the times were offered. The pick can be
- * a few messages back (e.g. pick a time, then give registration details): the rubric counts picking a
- * listed option as consent. A "yes" from before the most recent offer doesn't count.
- */
 function confirmedBeforeWrites(t: Turn[]): CheckResult {
   const writes = new Set(["book_appointment", "book_family_appointments", "reschedule_appointment", "cancel_appointment"]);
   const consented = (i: number) => {
     for (let j = i; j >= 0; j--) {
-      if (j < i && t[j].toolEvents.some((e) => SEARCHES.has(e.name) && e.ok)) return false; // that message came before the offer
+      if (j < i && t[j].toolEvents.some((e) => SEARCHES.has(e.name) && e.ok)) return false;
       if (YES.test(t[j].user)) return true;
     }
     return false;
@@ -72,13 +64,11 @@ async function patientAppts(first: string, last: string) {
   );
 }
 
-/** Human-readable appointment records for check evidence. */
 const recs = (rows: { type: string; start_ts: string; status: string; provider?: string }[]) =>
   rows.length ? rows.map((a) => `${a.type} ${a.start_ts}${a.provider ? ` with ${a.provider}` : ""} [${a.status}]`).join("; ") : "no appointments";
 
 const dow = (ts: string) => new Date(ts.slice(0, 10) + "T00:00:00Z").getUTCDay();
 
-/** Most recent successful find_available_slots result in this session (from the tool log). */
 async function lastOfferedSlots(sessionId: string): Promise<{ start_time: string; provider_id: number }[]> {
   const rows = await db.all<{ content: string }>("SELECT content FROM messages WHERE session_id = $1 AND role = 'tool' ORDER BY id DESC", [sessionId]);
   for (const r of rows) {
@@ -315,7 +305,6 @@ export const SCENARIOS: Scenario[] = [
     goal: "Register and book a general checkup next week. Always pick the FIRST time offered. If that time is gone, accept the first alternative.",
     opening: "I'd like to book a checkup next week, I'm a new patient",
     maxTurns: 10,
-    // As soon as the bot offers times, another "patient" books the first one.
     afterTurn: async (turn, _i, sessionId) => {
       if (stolen.start_time || !turn.toolEvents.some((e) => e.name === "find_available_slots" && e.ok)) return;
       const [first] = await lastOfferedSlots(sessionId);

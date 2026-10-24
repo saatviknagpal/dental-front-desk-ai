@@ -5,11 +5,10 @@ export interface Booking {
   appointment_id: number;
   patient_name: string;
   label: string;
-  start_time: string; // "YYYY-MM-DD HH:MM" in the practice's timezone
+  start_time: string;
   display: string;
   provider_name: string;
   duration_minutes: number;
-  /** Set when the appointment was moved: the old time. */
   previous_time?: string;
 }
 
@@ -21,7 +20,6 @@ export interface PracticeInfo {
   timezone: string;
 }
 
-/** "2026-10-27 09:30" + minutes → "20261027T100000" (wall-clock time, no UTC conversion). */
 function stamp(ts: string, addMinutes = 0): string {
   const [d, t] = ts.split(" ");
   const [y, mo, day] = d.split("-").map(Number);

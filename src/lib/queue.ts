@@ -23,14 +23,11 @@ export interface Job {
 
 type Handler = (payload: Record<string, unknown>) => Promise<void>;
 
-/** Throw this for errors that retrying can't fix (bad address, rejected request). */
 export class PermanentJobError extends Error {}
 
 const HANDLERS: Record<JobType, Handler> = {
-  // Throws on failure so the job is retried.
   staff_alert: (p) => notifyStaffWebhook({ practice: String(p.practice), text: String(p.text) }),
   booking_confirmation: (p) => sendConfirmationEmail(p as unknown as ConfirmationPayload),
-  // AI judge grades a finished chat; rate limits throw and get retried with backoff.
   quality_check: async (p) => {
     const practice = practiceBySlug(String(p.practice)) ?? PRACTICES[0];
     const verdict = await withPractice(practice, () => judgeSession(String(p.session_id)));
@@ -38,7 +35,6 @@ const HANDLERS: Record<JobType, Handler> = {
   },
 };
 
-/** Queue a quality check for this practice's finished chats that haven't been graded or queued yet. */
 export async function queueQualityChecks(limit = 50): Promise<number> {
   const practice = currentPractice();
   const sessions = await db.all<{ id: string }>(
@@ -57,13 +53,12 @@ export async function enqueue(q: Q, type: JobType, payload: Record<string, unkno
   await q.run("INSERT INTO jobs (type, payload, practice_id) VALUES ($1, $2, $3)", [type, JSON.stringify(payload), currentPractice().id]);
 }
 
-/** Claim and run up to `limit` due jobs. Returns how many were processed. */
 export async function processJobs(limit = 10, handlers: Record<string, Handler> = HANDLERS): Promise<number> {
   const jobs = await db.all<Job>(
     `UPDATE jobs SET status = 'running', attempts = attempts + 1, locked_at = now()
      WHERE id IN (SELECT id FROM jobs WHERE status = 'pending' AND run_at <= now() AND type = ANY($2) ORDER BY id LIMIT $1 FOR UPDATE SKIP LOCKED)
      RETURNING id, type, payload, attempts, max_attempts`,
-    [limit, Object.keys(handlers)], // only job types this code knows, so an older instance mid-deploy leaves new types alone
+    [limit, Object.keys(handlers)],
   );
   for (const job of jobs) {
     try {
@@ -80,7 +75,6 @@ export async function processJobs(limit = 10, handlers: Record<string, Handler> 
   return jobs.length;
 }
 
-/** Jobs stuck in 'running' (worker crashed mid-job) go back to pending after 5 minutes; finished jobs are kept 7 days. */
 export async function requeueStuckJobs(): Promise<void> {
   await db.run("UPDATE jobs SET status = 'pending' WHERE status = 'running' AND locked_at < now() - interval '5 minutes'");
   await db.run("DELETE FROM jobs WHERE status = 'done' AND finished_at < now() - interval '7 days'");
@@ -89,7 +83,6 @@ export async function requeueStuckJobs(): Promise<void> {
 
 let started = false;
 
-/** Poll for jobs every few seconds in this process. Safe to run in every instance. */
 export function startWorker(intervalMs = 3000): void {
   if (started) return;
   started = true;

@@ -11,20 +11,19 @@ import { currentPractice, INSURANCE_TEXT, type Practice } from "./practice";
 import { costUsd, type Usage } from "./pricing";
 
 export interface JudgeVerdict {
-  tone: number; // 1-5
-  clarity: number; // 1-5
-  redundancy: number; // count of re-asks for info already given
+  tone: number;
+  clarity: number;
+  redundancy: number;
   hallucination: boolean;
   hallucination_detail: string;
   policy_violations: string[];
-  reasons: Record<string, string>; // per-criterion explanation
+  reasons: Record<string, string>;
   summary: string;
   pass: boolean;
   judge_model: string;
   usage?: Usage;
 }
 
-/** The rubric, shown verbatim on the /evals page so it's clear what the judge scores. */
 export const JUDGE_RUBRIC = [
   { key: "tone", scale: "1-5", passIf: ">= 4", description: "Warm, human and calm; matches the patient's mood (reassuring if in pain or anxious). 5 = a great receptionist, 1 = robotic or rude." },
   { key: "clarity", scale: "1-5", passIf: ">= 3", description: "Concise, asks at most about two things at once, easy to follow; offers a short list of options rather than a wall of text." },
@@ -44,7 +43,6 @@ export function judgeProvider(): { provider: ProviderName; model: string } {
   return { provider, model: process.env.EVAL_JUDGE_MODEL || llmConfig(provider).model };
 }
 
-/** Used when the main judge fails (quota, billing, outage). A bigger model than the chat bot's to limit self-preference. */
 function fallbackJudge(): { provider: ProviderName; model: string } | null {
   const fallback = { provider: "openai" as const, model: process.env.EVAL_JUDGE_FALLBACK_MODEL || "gpt-4.1" };
   const main = judgeProvider();
@@ -73,7 +71,6 @@ Respond with ONLY a JSON object:
  "reasons": {"tone": "why", "clarity": "why", "redundancy": "which questions were repeated, or 'none'", "hallucination": "why", "policy_violations": "why"},
  "summary": "one sentence"}`;
 
-/** Render a stored transcript (messages table rows) as text for the judge. LLM trace rows are skipped. */
 export function renderTranscript(rows: { role: string; content: string }[]): string {
   return rows
     .filter((r) => r.role !== "llm")

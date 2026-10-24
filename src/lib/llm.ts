@@ -20,22 +20,18 @@ export type ChatMessage =
   | { role: "tool"; tool_call_id: string; name: string; content: string };
 
 export interface CompletionRequest {
-  /** Stable part of the system prompt (cacheable). */
   systemStatic: string;
-  /** Per-turn part (current time, calendar). */
   systemDynamic: string;
   messages: ChatMessage[];
   tools: ToolDefinition[];
   model: string;
   temperature?: number;
-  /** Use a different provider than LLM_PROVIDER (e.g. a Gemini judge). */
   provider?: ProviderName;
 }
 
 export interface CompletionResponse {
   content: string | null;
   toolCalls: ToolCall[];
-  /** inputTokens includes cachedInputTokens. */
   usage?: { inputTokens: number; cachedInputTokens: number; outputTokens: number };
 }
 
@@ -99,7 +95,6 @@ async function completeAnthropic(req: CompletionRequest): Promise<CompletionResp
   const cfg = llmConfig(req.provider);
   if (!anthropicClients.has(cfg.apiKey)) anthropicClients.set(cfg.apiKey, new Anthropic({ apiKey: cfg.apiKey, maxRetries: 2, timeout: TIMEOUT_MS }));
   const client = anthropicClients.get(cfg.apiKey)!;
-  // Claude wants tool results as user-turn content blocks; merge consecutive ones.
   const messages: Anthropic.MessageParam[] = [];
   for (const m of req.messages) {
     if (m.role === "tool") {
@@ -123,7 +118,6 @@ async function completeAnthropic(req: CompletionRequest): Promise<CompletionResp
     model: req.model,
     max_tokens: 1024,
     temperature: req.temperature ?? 0.3,
-    // Static instructions are cached across all conversations; only the dynamic block changes.
     system: [
       { type: "text" as const, text: req.systemStatic, cache_control: { type: "ephemeral" as const } },
       ...(req.systemDynamic ? [{ type: "text" as const, text: req.systemDynamic }] : []),

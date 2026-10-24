@@ -13,11 +13,6 @@ const PROVIDER_DEFAULTS: Record<ProviderName, { baseURL: string; model: string }
   custom: { baseURL: "", model: "" },
 };
 
-/**
- * Config for the main chat model, or for another provider (e.g. the eval judge).
- * Provider-specific keys (OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY) win
- * over LLM_API_KEY, so several providers can be used side by side.
- */
 export function llmConfig(override?: ProviderName) {
   const main = (process.env.LLM_PROVIDER || "openai").trim().toLowerCase() as ProviderName;
   const provider = override ?? main;
@@ -36,18 +31,15 @@ export function practiceTimezone(): string {
   return currentPractice().timezone;
 }
 
-/** Each practice's own alert channel (STAFF_WEBHOOKS JSON by slug); STAFF_WEBHOOK_URL covers practices not listed. */
 export function staffWebhookUrl(practiceSlug: string): string {
   try {
     const own = JSON.parse(process.env.STAFF_WEBHOOKS || "{}")[practiceSlug];
     if (typeof own === "string" && own.trim()) return own.trim();
   } catch {
-    /* bad JSON: fall back */
   }
   return (process.env.STAFF_WEBHOOK_URL || "").trim();
 }
 
-/** Public base URL for links in alerts. Render sets RENDER_EXTERNAL_URL automatically. */
 export function appUrl(): string {
   return (process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "http://localhost:3000").replace(/\/$/, "");
 }

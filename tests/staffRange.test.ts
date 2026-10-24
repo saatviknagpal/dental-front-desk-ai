@@ -6,7 +6,6 @@ const days = (r: Parameters<typeof appointmentRange>[0], today: string) => appoi
 
 describe("staff appointment ranges", () => {
   it("covers today, the rest of this week, next week and three weeks", () => {
-    // 2026-10-23 is a Friday
     expect(days("today", "2026-10-23")).toEqual(["2026-10-23", "2026-10-24"]);
     expect(days("this_week", "2026-10-23")).toEqual(["2026-10-23", "2026-10-26"]);
     expect(days("next_week", "2026-10-23")).toEqual(["2026-10-26", "2026-11-02"]);

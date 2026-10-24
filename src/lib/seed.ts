@@ -6,7 +6,6 @@ import { db, transaction, truncateAll, type Q } from "./db";
 import { APPOINTMENT_TYPES, BOOKING_HORIZON_DAYS, CLOSE_HOUR, OPEN_HOUR, OPEN_WEEKDAYS, SLOT_MINUTES, type AppointmentType } from "./practice";
 import { addDays, addMinutes, fmtTs, parseTs, practiceNow, startOfDay, weekday } from "./time";
 
-// id, name, title, services, practice_id
 export const PROVIDERS: [number, string, string, string, number][] = [
   [1, "Dr. Maya Patel", "DDS, General Dentist", "checkup,emergency,cleaning", 1],
   [2, "Dr. James Okafor", "DDS, General Dentist", "checkup,emergency", 1],
@@ -17,7 +16,6 @@ export const PROVIDERS: [number, string, string, string, number][] = [
   [7, "Kim Nguyen", "RDH, Dental Hygienist", "cleaning", 2],
 ];
 
-// id, first, last, dob, phone, insurance (null = self-pay), household_id, practice_id
 export const PATIENTS: [number, string, string, string, string, string | null, number, number][] = [
   [1, "John", "Smith", "1985-06-14", "4155550101", "Delta Dental", 1, 1],
   [2, "Emily", "Chen", "1990-11-02", "4155550102", "Cigna", 2, 1],
@@ -31,7 +29,6 @@ export const PATIENTS: [number, string, string, string, string, string | null, n
   [10, "Tom", "Becker", "1975-12-01", "6175550112", null, 10, 2],
 ];
 
-// patient_id, type, days from today, earliest hour
 const EXISTING_APPOINTMENTS: [number, AppointmentType, number, number][] = [
   [1, "checkup", 10, 10],
   [2, "cleaning", 4, 14],
@@ -40,7 +37,6 @@ const EXISTING_APPOINTMENTS: [number, AppointmentType, number, number][] = [
   [9, "checkup", 5, 9],
 ];
 
-/** Small deterministic PRNG (mulberry32). */
 function rng(seed: number) {
   return () => {
     seed |= 0;
@@ -57,14 +53,12 @@ export async function isSeeded(): Promise<boolean> {
   return !!(await db.get("SELECT 1 AS x FROM providers LIMIT 1"));
 }
 
-/** Seed once per process if the DB is empty (cheap after the first call). */
 export async function ensureSeeded(): Promise<void> {
   if (seededCache) return;
   if (!(await isSeeded())) await seed();
   seededCache = true;
 }
 
-/** Multi-row INSERT in chunks (keeps parameter count under Postgres limits). */
 async function bulkInsert(tx: Q, table: string, columns: string[], rows: unknown[][], chunk = 500) {
   for (let i = 0; i < rows.length; i += chunk) {
     const part = rows.slice(i, i + chunk);
@@ -85,8 +79,6 @@ export async function seed({ reset = false, rngSeed = 42 } = {}): Promise<void> 
   const today = startOfDay(practiceNow());
   const created = fmtTs(practiceNow());
 
-  // Mon-Sat 8:00-18:00. Lunch (12-1) blocked. ~30% of other hours blocked in
-  // 1-hour chunks to simulate other patients' bookings.
   const slotRows: unknown[][] = [];
   for (let d = 0; d < BOOKING_HORIZON_DAYS; d++) {
     const day = addDays(today, d);
@@ -109,7 +101,6 @@ export async function seed({ reset = false, rngSeed = 42 } = {}): Promise<void> 
       ["id", "first_name", "last_name", "dob", "phone", "insurance_name", "household_id", "practice_id", "created_at", "insurance_member_id"],
       PATIENTS.map((p) => [...p, created, p[5] ? `W${String(p[0]).padStart(3, "0")}${p[4].slice(-6)}` : null]),
     );
-    // Explicit ids above: move the identity sequence past them.
     await tx.run("SELECT setval(pg_get_serial_sequence('patients', 'id'), (SELECT max(id) FROM patients))");
     await bulkInsert(tx, "slots", ["provider_id", "start_ts", "status"], slotRows);
     for (const [patientId, type, dayOffset, hour] of EXISTING_APPOINTMENTS) {
@@ -122,7 +113,6 @@ export async function seed({ reset = false, rngSeed = 42 } = {}): Promise<void> 
 async function seedAppointment(tx: Q, patientId: number, type: AppointmentType, earliest: Date, created: string) {
   const { minutes } = APPOINTMENT_TYPES[type];
   const n = minutes / SLOT_MINUTES;
-  // Most specialized provider first (hygienists for cleanings).
   const practiceId = PATIENTS.find((p) => p[0] === patientId)![7];
   const capable = PROVIDERS.filter((p) => p[4] === practiceId && p[3].split(",").includes(type))
     .sort((a, b) => a[3].split(",").length - b[3].split(",").length)

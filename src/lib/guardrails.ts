@@ -20,7 +20,6 @@ const LEAK_REPLY = `For privacy, I can't share details about other patients. I c
 
 let moderationClient: OpenAI | undefined;
 
-/** OpenAI moderation (free). Fails open: if the check itself errors, the chat continues. */
 export async function moderateInput(text: string): Promise<InputVerdict> {
   const cfg = llmConfig("openai");
   if (!cfg.apiKey || process.env.MODERATION_DISABLED === "true") return { ok: true };
@@ -31,7 +30,6 @@ export async function moderateInput(text: string): Promise<InputVerdict> {
     if (!r?.flagged) return { ok: true };
     const c = r.categories as unknown as Record<string, boolean>;
     if (c["self-harm"] || c["self-harm/intent"] || c["self-harm/instructions"]) return { ok: false, reason: "self-harm", reply: CRISIS_REPLY };
-    // Not "violence": injuries ("knocked out my tooth", "bleeding") get flagged as violence and are exactly the emergencies we must help with.
     if (c["harassment/threatening"] || c["hate/threatening"] || c["harassment"] || c["hate"]) return { ok: false, reason: "abuse", reply: abuseReply() };
     return { ok: true };
   } catch {
@@ -39,7 +37,6 @@ export async function moderateInput(text: string): Promise<InputVerdict> {
   }
 }
 
-/** Per-caller rate limit (fixed one-minute window). */
 export function allowRequest(callerKey: string): Promise<boolean> {
   return rateLimit(`chat:${callerKey}`, REQUESTS_PER_MINUTE_PER_CALLER, 60);
 }
@@ -47,11 +44,6 @@ export function allowRequest(callerKey: string): Promise<boolean> {
 const PHONE_RE = /\(?\b(\d{3})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})\b/g;
 const NAME_RE = /\b([A-Z][a-zà-ÿ'-]+)\s+([A-Z][a-zà-ÿ'-]+)\b/g;
 
-/**
- * Returns a safe replacement if the reply mentions a patient (by full name or
- * phone) who is not verified in this chat and whom the user didn't name
- * themselves. Otherwise returns null.
- */
 export async function checkOutput(reply: string, allowedPatientIds: number[], userTexts: string[]): Promise<{ reply: string; reason: string } | null> {
   const said = userTexts.join(" ").toLowerCase();
   const saidDigits = userTexts.join(" ").replace(/\D/g, "");
@@ -62,7 +54,6 @@ export async function checkOutput(reply: string, allowedPatientIds: number[], us
     .filter(([f, l]) => !said.includes(`${f} ${l}`.toLowerCase()));
   if (!phones.length && !names.length) return null;
 
-  // Matches (first, last) pairs so the per-practice identity and phone indexes are used.
   const leaked = await db.all<{ id: number }>(
     `SELECT id FROM patients
      WHERE practice_id = $1 AND NOT (id = ANY($2::int[]))

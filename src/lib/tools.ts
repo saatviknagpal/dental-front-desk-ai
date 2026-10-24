@@ -14,18 +14,14 @@ import { addDays, addMinutes, dayName, fmtDate, fmtTs, humanTs, parseTs, practic
 
 export { TOOL_DEFINITIONS, type ToolDefinition } from "./tool-definitions";
 
-// ---------------------------------------------------------------------------
-// Types
 
 export interface ToolContext {
   sessionId: string;
-  /** Full access: verified with name + DOB, registered here, or a minor in their household. */
   verified: number[];
-  /** Booking-only access: adult household members of a verified patient (e.g. a spouse). */
   household: number[];
   failedVerifications: number;
-  /** Caller IP (or similar), for the cross-chat lockout. */
   caller?: string;
+  userTexts?: string[];
 }
 
 export type ToolResult = { ok: true; [key: string]: unknown } | { ok: false; error: string; message: string; [key: string]: unknown };
@@ -63,9 +59,8 @@ interface AppointmentRow {
 const MAX_FAILED_VERIFICATIONS = 3;
 const LOCKOUT_MINUTES = 15;
 const MAX_FAILED_PER_NAME = 20;
-// Abuse limits, so one person or bot can't fill the schedule with made-up patients.
 const MAX_UPCOMING_PER_PATIENT = 3;
-const MAX_REGISTRATIONS_PER_CALLER_PER_DAY = 6; // a parent registering a big family still fits
+const MAX_REGISTRATIONS_PER_CALLER_PER_DAY = 6;
 const MAX_HOUSEHOLDS_PER_PHONE = 2;
 const LOCAL_CALLERS = new Set(["local", "::1", "127.0.0.1", "::ffff:127.0.0.1"]);
 
@@ -81,8 +76,6 @@ class ToolError extends Error {
 
 const fail = (code: string, message: string, extra: Record<string, unknown> = {}): ToolResult => ({ ok: false, error: code, message, ...extra });
 
-// ---------------------------------------------------------------------------
-// Small helpers
 
 const normName = (s: string) =>
   String(s ?? "")
@@ -99,7 +92,6 @@ function normPhone(raw: unknown): string | null {
   return digits.length === 10 ? digits : null;
 }
 
-/** Accepts YYYY-MM-DD or MM/DD/YYYY. */
 function normDob(raw: unknown): string | null {
   const s = String(raw ?? "").trim();
   const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
@@ -185,7 +177,6 @@ function slotTimes(start: Date, type: AppointmentType): string[] {
   return Array.from({ length: n }, (_, i) => fmtTs(addMinutes(start, i * SLOT_MINUTES)));
 }
 
-/** Earliest bookable start: emergencies can be same-day soon; others need 1 hour lead time. */
 function earliestStart(type: AppointmentType): Date {
   const lead = type === "emergency" ? 15 : 60;
   const t = addMinutes(practiceNow(), lead);
@@ -209,9 +200,9 @@ type TimeOfDay = "morning" | "afternoon" | "late_afternoon" | "any";
 
 interface SearchFilters {
   timeOfDay: TimeOfDay;
-  after?: string; // "HH:MM"
-  before?: string; // "HH:MM" (appointment must start before this)
-  days?: Set<number>; // weekday numbers
+  after?: string;
+  before?: string;
+  days?: Set<number>;
 }
 
 function matchesFilters(start: Date, f: SearchFilters): boolean {
@@ -257,7 +248,6 @@ function parseRange(args: Args): { from: Date; to: Date } {
   return { from, to };
 }
 
-/** Set of "providerId|YYYY-MM-DD HH:MM" for open slots in [from, to]. */
 async function openSlotSet(from: Date, to: Date): Promise<Set<string>> {
   const rows = await db.all<{ provider_id: number; start_ts: string }>(
     "SELECT provider_id, start_ts FROM slots WHERE status = 'open' AND start_ts >= $1 AND start_ts < $2",
@@ -273,7 +263,6 @@ interface Candidate {
 
 async function findCandidates(type: AppointmentType, from: Date, to: Date, f: SearchFilters, providerId?: number): Promise<Candidate[]> {
   const open = await openSlotSet(from, to);
-  // Most specialized first: hygienists take cleanings, keeping dentists free for exams/emergencies.
   const capable = (await providers())
     .filter((p) => canDo(p, type) && (!providerId || p.id === providerId))
     .sort((a, b) => a.services.split(",").length - b.services.split(",").length);
@@ -291,7 +280,6 @@ async function findCandidates(type: AppointmentType, from: Date, to: Date, f: Se
   return out;
 }
 
-/** Pick a short, varied list (max 2 per day, spread out) instead of 10 adjacent times. */
 function diversify<T extends { start: Date }>(cands: T[], limit: number): T[] {
   const byDay = new Map<string, T[]>();
   for (const c of cands) {
@@ -317,12 +305,6 @@ const slotView = (c: Candidate, type: AppointmentType) => ({
   duration_minutes: APPOINTMENT_TYPES[type].minutes,
 });
 
-/**
- * Claim the slots for an appointment inside a transaction. The conditional
- * UPDATE (status = 'open') is the concurrency guard: under READ COMMITTED a
- * competing transaction blocks on the row lock, then re-checks the WHERE and
- * matches 0 rows, so exactly one booking wins. Throws SLOT_TAKEN.
- */
 async function claimSlots(tx: Q, appointmentId: number, providerId: number, start: Date, type: AppointmentType) {
   const times = slotTimes(start, type);
   const r = await tx.run(
@@ -347,14 +329,12 @@ async function assertNoPatientOverlap(tx: Q, patientId: number, start: Date, typ
 
 type Card = { appointment_id: number; patient_name: string; label: string; start_time: string; display: string; provider_name: string; duration_minutes: number };
 
-/** Queue a confirmation email (outbox) inside the booking's transaction, if the patient has an email. */
 async function queueConfirmation(q: Q, email: string | null, appointments: Card[]) {
   if (!email || !appointments.length) return;
   const { slug, name, address, phone, timezone } = currentPractice();
   await enqueue(q, "booking_confirmation", { to: email, practice: { slug, name, address, phone, timezone }, appointments });
 }
 
-/** Store a staff alert and queue its outside delivery (webhook) in the same transaction. */
 async function insertNotification(q: Q, type: string, urgency: string, summary: string, sessionId: string, patientId: number | null) {
   const r = await q.get<{ id: number }>(
     "INSERT INTO notifications (type, urgency, patient_id, summary, session_id, created_at, practice_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
@@ -374,7 +354,6 @@ interface BookingInput {
   emergencySummary?: string | null;
 }
 
-/** Insert one appointment and claim its slots. Must run inside a transaction. */
 async function bookOne(tx: Q, ctx: ToolContext, b: BookingInput) {
   await assertNoPatientOverlap(tx, b.patient.id, b.start, b.type);
   const now = fmtTs(practiceNow());
@@ -417,8 +396,6 @@ async function alternativesNear(type: AppointmentType, start: Date) {
   return diversify(await findCandidates(type, from, addDays(from, 3), { timeOfDay: "any" }), 4).map((c) => slotView(c, type));
 }
 
-// ---------------------------------------------------------------------------
-// Tool implementations
 
 const LOCKED = () =>
   fail("VERIFICATION_LOCKED", "Too many failed verification attempts. Do not try again; offer to have the front desk call them back (notify_staff with type callback).");
@@ -428,10 +405,7 @@ async function verify_patient(ctx: ToolContext, args: Args): Promise<ToolResult>
   const dob = normDob(args.date_of_birth);
   const name = normName(String(args.full_name ?? ""));
   if (!dob || !name.includes(" ")) return fail("MISSING_INFO", "Need the patient's full name (first and last) and date of birth (any format from the patient; pass it as YYYY-MM-DD).");
-  // The lockout is also counted per name across all chats, so opening a new chat doesn't reset it.
   const since = fmtTs(addMinutes(practiceNow(), -LOCKOUT_MINUTES));
-  // Lock this caller after 3 misses for a name; lock the name for everyone only after many misses,
-  // so one person can't lock a real patient out by guessing wrong on purpose.
   const recent = await db.get<{ mine: number; total: number }>(
     "SELECT count(*) FILTER (WHERE caller IS NOT DISTINCT FROM $3)::int AS mine, count(*)::int AS total FROM verification_failures WHERE name_key = $1 AND created_at >= $2",
     [`${pid()}:${name}`, since, ctx.caller ?? null],
@@ -513,16 +487,13 @@ async function register_patient(ctx: ToolContext, args: Args): Promise<ToolResul
   const insurance = normInsurance(args.insurance_name);
   const email = args.email ? normEmail(args.email) : null;
   if (args.email && !email) return fail("INVALID_EMAIL", "That email address doesn't look right. Ask them to check it, or register without one.");
-  // Member ID is optional and only format-checked; the front desk verifies coverage before the visit.
   const memberId = insurance && args.insurance_member_id ? String(args.insurance_member_id).replace(/[\s-]/g, "").toUpperCase() : null;
   if (memberId && !/^[A-Z0-9]{5,20}$/.test(memberId)) return fail("INVALID_MEMBER_ID", "That member ID doesn't look right (it's usually 5-20 letters and numbers on the insurance card). Ask them to check it, or register without it.");
   const subscriber = insurance && args.policyholder_name ? String(args.policyholder_name).trim().slice(0, 100) || null : null;
   let id: number;
   try {
     id = await transaction(async (tx) => {
-      // Limits are counted inside the transaction under a lock, so parallel chats from one bot can't all pass the count at once.
       const callbackInstead = "Don't try again; offer to have the front desk call them back to finish registering (notify_staff with type callback).";
-      // Local addresses are the dev server (no proxy), where every tester shares one caller.
       if (ctx.caller && !LOCAL_CALLERS.has(ctx.caller)) {
         await tx.run("SELECT pg_advisory_xact_lock(hashtext($1))", [`register:${ctx.caller}`]);
         const recent = await tx.get<{ n: number }>("SELECT count(*)::int AS n FROM patients WHERE registered_by = $1 AND created_at >= $2", [ctx.caller, fmtTs(addDays(now, -1))]);
@@ -536,7 +507,6 @@ async function register_patient(ctx: ToolContext, args: Args): Promise<ToolResul
         }
       }
       const r = await tx.get<{ id: number }>(
-        // uq_patients_identity also catches two registrations racing past the duplicate check above
         `INSERT INTO patients (first_name, last_name, dob, phone, insurance_name, household_id, created_at, practice_id, email, insurance_member_id, insurance_subscriber, registered_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
         [first, last, dob, phone, insurance, householdId, fmtTs(now), pid(), email, memberId, subscriber, ctx.caller ?? null],
@@ -579,18 +549,41 @@ async function list_appointments(ctx: ToolContext, args: Args): Promise<ToolResu
   return { ok: true, patient_id: p.id, upcoming_appointments: await upcomingAppointments(p.id) };
 }
 
-async function find_available_slots(_ctx: ToolContext, args: Args): Promise<ToolResult> {
+const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+export function askedWeekday(userTexts: string[] = []): number | undefined {
+  for (let i = userTexts.length - 1; i >= 0; i--) {
+    const words = new Set(userTexts[i].toLowerCase().split(/[^a-z']+/));
+    const days = WEEKDAYS.flatMap((d, n) => (words.has(d) ? [n] : []));
+    if (!days.length) continue;
+    const ruledOut = ["not", "except", "instead", "besides", "cannot"].some((w) => words.has(w)) || [...words].some((w) => w.endsWith("n't"));
+    if (days.length > 1 || ruledOut) return undefined;
+    return days[0];
+  }
+  return undefined;
+}
+
+function weekdayMismatch(ctx: ToolContext, from: Date, to: Date): string | undefined {
+  const asked = askedWeekday(ctx.userTexts);
+  if (asked === undefined) return undefined;
+  for (let d = from; d <= to; d = addDays(d, 1)) if (weekday(d) === asked) return undefined;
+  const name = WEEKDAYS[asked][0].toUpperCase() + WEEKDAYS[asked].slice(1);
+  const next = addDays(from, (asked - weekday(from) + 7) % 7);
+  return `The patient asked for ${name}, but this search (${fmtDate(from)} to ${fmtDate(to)}) has no ${name}. The ${name} after ${fmtDate(from)} is ${fmtDate(next)}. Unless they clearly meant another day, search ${fmtDate(next)} before offering times.`;
+}
+
+async function find_available_slots(ctx: ToolContext, args: Args): Promise<ToolResult> {
   const type = apptType(args.appointment_type);
   const { from, to } = parseRange(args);
+  const dayWarning = weekdayMismatch(ctx, from, to);
   const filters = parseFilters(args);
   const limit = Math.min(Math.max(Number(args.limit) || 5, 1), 10);
   const providerId = args.provider_id ? Number(args.provider_id) : undefined;
 
   const found = diversify(await findCandidates(type, from, to, filters, providerId), limit);
   if (found.length) {
-    return { ok: true, appointment_type: type, searched: { from: fmtDate(from), to: fmtDate(to) }, slots: found.map((c) => slotView(c, type)) };
+    return { ok: true, appointment_type: type, searched: { from: fmtDate(from), to: fmtDate(to) }, ...(dayWarning ? { warning: dayWarning } : {}), slots: found.map((c) => slotView(c, type)) };
   }
-  // Nothing matched: look further out (same filters first, then any time) so the bot can offer alternatives.
   let next = diversify(await findCandidates(type, addDays(to, 1), addDays(to, 21), filters, providerId), 3);
   let relaxed = false;
   if (!next.length) {
@@ -601,6 +594,7 @@ async function find_available_slots(_ctx: ToolContext, args: Args): Promise<Tool
     ok: true,
     appointment_type: type,
     searched: { from: fmtDate(from), to: fmtDate(to) },
+    ...(dayWarning ? { warning: dayWarning } : {}),
     slots: [],
     message: "No openings match those preferences.",
     next_available: next.map((c) => slotView(c, type)),
@@ -665,7 +659,6 @@ async function reschedule_appointment(ctx: ToolContext, args: Args): Promise<Too
   const provider = await providerById(Number(args.provider_id ?? appt.provider_id));
   if (!provider || !canDo(provider, appt.type)) return fail("INVALID_PROVIDER", "Use a provider_id returned by find_available_slots for this appointment type.");
   try {
-    // Release + claim in one transaction: if the new time is gone, the original booking is untouched.
     await transaction(async (tx) => {
       await releaseSlots(tx, appt.id);
       await assertNoPatientOverlap(tx, patient.id, start, appt.type, appt.id);
@@ -748,7 +741,6 @@ async function find_family_slots(ctx: ToolContext, args: Args): Promise<ToolResu
     const before = options.length;
     for (let t = addMinutes(day, OPEN_HOUR * 60); t < close; t = addMinutes(t, SLOT_MINUTES)) {
       if (t < minStart || !matchesFilters(t, filters)) continue;
-      // Greedy plan: each member takes the first capable provider free at the cursor.
       const used = new Set<string>();
       const plan: { start: Date; provider: ProviderRow; type: AppointmentType; patient: PatientRow }[] = [];
       let cursor = t;
@@ -787,7 +779,6 @@ async function book_family_appointments(ctx: ToolContext, args: Args): Promise<T
     const booked = await transaction(async (tx) => {
       const out = [];
       for (const b of inputs) out.push(await bookOne(tx, ctx, b));
-      // One email per address (a parent's kids usually share the parent's email).
       for (const email of new Set(inputs.map((b) => b.patient.email).filter(Boolean))) {
         await queueConfirmation(tx, email, out.filter((_, i) => inputs[i].patient.email === email));
       }
@@ -813,8 +804,6 @@ async function notify_staff(ctx: ToolContext, args: Args): Promise<ToolResult> {
   return { ok: true, notification_id: id, message: "Staff have been notified." };
 }
 
-// ---------------------------------------------------------------------------
-// Registry
 
 const HANDLERS: Record<string, (ctx: ToolContext, args: Args) => Promise<ToolResult>> = {
   verify_patient,
@@ -830,7 +819,6 @@ const HANDLERS: Record<string, (ctx: ToolContext, args: Args) => Promise<ToolRes
   email_confirmation,
 };
 
-/** Execute a tool by name. Never throws: unexpected errors become { ok: false }. */
 export async function executeTool(ctx: ToolContext, name: string, args: Args): Promise<ToolResult> {
   const handler = HANDLERS[name];
   if (!handler) return fail("UNKNOWN_TOOL", `No tool named ${name}.`);

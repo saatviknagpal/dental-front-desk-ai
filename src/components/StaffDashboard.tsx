@@ -142,7 +142,6 @@ function Transcript({ sessionId, onClose }: { sessionId: string; onClose: () => 
               try {
                 c = JSON.parse(m.content);
               } catch {
-                /* ignore */
               }
               return (
                 <div key={m.id} className="rounded-lg border border-dashed border-border px-3 py-1.5 font-mono text-xs text-muted">
@@ -155,7 +154,6 @@ function Transcript({ sessionId, onClose }: { sessionId: string; onClose: () => 
               try {
                 parsed = JSON.parse(m.content);
               } catch {
-                /* ignore */
               }
               return (
                 <details key={m.id} className={`rounded-lg px-3 py-2 font-mono text-xs ${parsed.ok ? "bg-brand-soft" : "bg-warn-soft"}`}>
@@ -183,7 +181,6 @@ function Transcript({ sessionId, onClose }: { sessionId: string; onClose: () => 
   );
 }
 
-/** Soft two-note chime made with Web Audio, so there's no sound file to ship. Browsers may mute it until the page is clicked. */
 function chime() {
   try {
     const ctx = new AudioContext();
@@ -200,7 +197,6 @@ function chime() {
       osc.stop(t + 0.5);
     });
   } catch {
-    /* no audio available — the title and the red alert still show */
   }
 }
 
@@ -215,10 +211,9 @@ export default function StaffDashboard() {
   const [qcMessage, setQcMessage] = useState<string | null>(null);
   const seenEmergencies = useRef<Set<number> | null>(null);
 
-  // Open-alert count in the tab title, and a short chime when a new emergency arrives (not on first load).
   useEffect(() => {
     if (!data) {
-      seenEmergencies.current = null; // switching practice: don't chime for its existing alerts
+      seenEmergencies.current = null;
       return;
     }
     const open = data.notifications.filter((n) => !n.acknowledged);

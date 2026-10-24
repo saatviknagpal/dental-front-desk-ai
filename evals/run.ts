@@ -43,15 +43,13 @@ interface RunResult {
   judge?: JudgeVerdict | { skipped: string };
   turns: Turn[];
   steps: Step[];
-  usage: Usage; // agent LLM calls only (not the simulated patient or judge)
+  usage: Usage;
   latenciesMs: number[];
   toolCalls: number;
   toolErrors: number;
   seconds: number;
 }
 
-// ---------------------------------------------------------------------------
-// Worker: run ONE scenario once, print the result as JSON on the last line.
 
 async function worker(id: string, rep: number) {
   process.env.DATABASE_URL = "";
@@ -102,7 +100,6 @@ Rules:
       if (r.degraded) throw new Error(`agent degraded: ${r.reply}`);
       if (s.afterTurn) await s.afterTurn(turn, i, sessionId);
 
-      // From the simulated patient's point of view, the bot is the "user".
       const messages: { role: "user" | "assistant"; content: string }[] = [{ role: "user", content: greeting() }];
       for (const t of turns) messages.push({ role: "assistant", content: t.user }, { role: "user", content: t.reply });
       const res = await complete({
@@ -132,14 +129,12 @@ Rules:
     }
   }
 
-  // Full trajectory from the agent's own log: user, llm (decision + tokens + cost), tool (args + result), assistant.
   const steps: Step[] = sessionId
     ? (await db.all<{ role: Step["role"]; content: string }>("SELECT role, content FROM messages WHERE session_id = $1 ORDER BY id", [sessionId])).map((m) => {
         if (m.role === "llm" || m.role === "tool" || m.role === "guardrail") {
           try {
             return { role: m.role, content: JSON.parse(m.content) };
           } catch {
-            /* fall through */
           }
         }
         return { role: m.role, content: m.content };
@@ -168,8 +163,6 @@ Rules:
   process.stdout.write(`\n@@RESULT@@${JSON.stringify(result)}\n`);
 }
 
-// ---------------------------------------------------------------------------
-// Orchestrator
 
 function runWorker(id: string, rep: number, env: NodeJS.ProcessEnv): Promise<RunResult> {
   return new Promise((resolve) => {

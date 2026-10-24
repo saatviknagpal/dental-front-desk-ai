@@ -6,7 +6,6 @@ import { STAFF_ACCESS_HEADER } from "./staffAuth";
 
 export type StaffScope = { practice: Practice; admin: boolean; practices: Practice[] };
 
-/** Admins may pick any practice (?practice=); practice staff only get their own. */
 export function staffScope(req: Request): StaffScope | NextResponse {
   const access = req.headers.get(STAFF_ACCESS_HEADER);
   const requested = new URL(req.url).searchParams.get("practice");

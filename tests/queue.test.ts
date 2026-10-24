@@ -35,7 +35,7 @@ describe("job queue", () => {
     });
     const [job] = await jobs();
     expect(job).toMatchObject({ status: "pending", attempts: 1, last_error: "webhook down" });
-    expect(await processJobs()).toBe(0); // backoff: not due yet
+    expect(await processJobs()).toBe(0);
   });
 
   it("fails permanent errors right away instead of retrying", async () => {
@@ -52,7 +52,7 @@ describe("job queue", () => {
     const c = ctx();
     await executeTool(c, "verify_patient", { full_name: "John Smith", date_of_birth: "1985-06-14" });
     const r = await executeTool(c, "book_appointment", { patient_id: 1, appointment_type: "emergency", start_time: "2026-10-27 12:00", provider_id: 1, emergency_summary: "Broken tooth" });
-    expect(r.ok).toBe(false); // 12:00 is lunch, so the slot claim fails and the transaction rolls back
+    expect(r.ok).toBe(false);
     expect(await jobs()).toEqual([]);
   });
 });

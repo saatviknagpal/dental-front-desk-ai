@@ -194,7 +194,6 @@ ALTER TABLE sessions ADD COLUMN IF NOT EXISTS busy_until TIMESTAMPTZ;      -- a 
 
 export type Row = Record<string, unknown>;
 
-/** Minimal query interface shared by the pool, PGlite, and transactions. */
 export interface Q {
   all<T = Row>(sql: string, params?: unknown[]): Promise<T[]>;
   get<T = Row>(sql: string, params?: unknown[]): Promise<T | undefined>;
@@ -224,7 +223,6 @@ function pgBackend(url: string): Backend {
     connectionString: url,
     ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
     max: Number(process.env.DATABASE_POOL_MAX || 5),
-    // Fail a request after 10s instead of waiting forever when every connection is busy or the database is unreachable.
     connectionTimeoutMillis: 10_000,
   });
   const rawFor =
@@ -249,7 +247,6 @@ function pgBackend(url: string): Backend {
         client.release();
       }
     },
-    // DDL/TRUNCATE in one transaction under an advisory lock: instances starting together take turns instead of deadlocking.
     async exec(sql) {
       const client = await pool.connect();
       try {
@@ -276,7 +273,6 @@ function pgliteBackend(dataDir?: string): Backend {
       const r = await c.query<Row>(sql, params as unknown[]);
       return { rows: r.rows, rowCount: r.affectedRows ?? r.rows.length };
     };
-  // PGlite is single-connection: serialize transactions so they never interleave.
   let chain: Promise<unknown> = Promise.resolve();
   return {
     q: makeQ(rawFor(db)),
@@ -292,16 +288,13 @@ function pgliteBackend(dataDir?: string): Backend {
 
 const g = globalThis as unknown as { __dentalDb?: { key: string; backend: Backend; ready: Promise<void> } };
 
-// Includes the schema size so a hot-reloaded schema change re-runs the (idempotent) DDL.
 function backendKey() {
   return `${process.env.DATABASE_URL || `pglite:${process.env.PGLITE_DIR || "memory"}`}#${SCHEMA.length}`;
 }
 
-/** Get the shared backend (one pool per process), creating the schema on first use. */
 async function backend(): Promise<Backend> {
   const key = backendKey();
   if (!g.__dentalDb || g.__dentalDb.key !== key) {
-    // Close the old pool so its connections don't leak, but later: requests still running may be using it.
     const old = g.__dentalDb?.backend;
     if (old) setTimeout(() => old.close().catch(() => undefined), 30_000).unref();
     const b = process.env.DATABASE_URL ? pgBackend(process.env.DATABASE_URL) : pgliteBackend(process.env.PGLITE_DIR || undefined);
@@ -311,7 +304,7 @@ async function backend(): Promise<Backend> {
   try {
     await current.ready;
   } catch (err) {
-    if (g.__dentalDb === current) g.__dentalDb = undefined; // retry the schema on the next call instead of failing forever
+    if (g.__dentalDb === current) g.__dentalDb = undefined;
     throw err;
   }
   return current.backend;
@@ -323,14 +316,11 @@ export const db: Q = {
   run: async (sql, params) => (await backend()).q.run(sql, params),
 };
 
-/** Run fn in a transaction; rolls back if it throws. */
 export async function transaction<T>(fn: (tx: Q) => Promise<T>): Promise<T> {
   return (await backend()).transaction(fn);
 }
 
-/** Wipe all data (demo reset / tests). Keeps the schema. */
 export async function truncateAll(): Promise<void> {
-  // Eval history tables are intentionally kept across demo resets.
   await (await backend()).exec("TRUNCATE chat_requests, jobs, verification_failures, messages, sessions, notifications, slots, appointments, patients, providers RESTART IDENTITY CASCADE");
 }
 

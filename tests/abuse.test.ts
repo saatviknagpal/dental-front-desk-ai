@@ -3,7 +3,6 @@ import { db } from "@/lib/db";
 import { seed } from "@/lib/seed";
 import { executeTool, type ToolContext } from "@/lib/tools";
 
-// Clock pinned to Fri 2026-10-23 10:00 (see vitest.config.ts).
 
 const newCtx = (caller?: string): ToolContext => ({ sessionId: "abuse", verified: [], household: [], failedVerifications: 0, caller });
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -21,7 +20,7 @@ describe("booking abuse limits", () => {
     const ctx = newCtx("203.0.113.9");
     for (let i = 0; i < 6; i++) expect((await register(ctx, i)).ok).toBe(true);
     expect((await register(ctx, 6)).error).toBe("REGISTRATION_LIMIT");
-    expect((await register(newCtx("198.51.100.4"), 7)).ok).toBe(true); // a different connection is fine
+    expect((await register(newCtx("198.51.100.4"), 7)).ok).toBe(true);
   });
 
   it("doesn't cap the local dev server, where every tester shares one address", async () => {
@@ -55,7 +54,6 @@ describe("booking abuse limits", () => {
     };
     for (const day of ["2026-10-26", "2026-10-27", "2026-10-28"]) expect((await book("checkup", day)).ok).toBe(true);
     expect((await book("cleaning", "2026-10-29")).error).toBe("TOO_MANY_UPCOMING");
-    // A family booking hitting the cap must not tell the model to search and retry.
     const kid = await call(ctx, "register_patient", { first_name: "Kid", last_name: "Tester", date_of_birth: "2018-05-05", insurance_name: "none", same_household_as_patient_id: patient.patient_id });
     const [a, b] = (await call(ctx, "find_available_slots", { appointment_type: "cleaning", date_from: "2026-10-30", date_to: "2026-10-30" })).slots;
     const family = await call(ctx, "book_family_appointments", {

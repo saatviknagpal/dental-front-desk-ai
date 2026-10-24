@@ -7,7 +7,6 @@ import { staffScope } from "@/lib/staffGuard";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Queue AI quality checks for this practice's ungraded chats. Admins only (it spends API credits). */
 export async function POST(req: Request) {
   const scope = staffScope(req);
   if (scope instanceof NextResponse) return scope;
