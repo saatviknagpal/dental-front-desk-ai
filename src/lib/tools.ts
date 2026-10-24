@@ -63,6 +63,10 @@ interface AppointmentRow {
 const MAX_FAILED_VERIFICATIONS = 3;
 const LOCKOUT_MINUTES = 15;
 const MAX_FAILED_PER_NAME = 20;
+// Abuse limits, so one person or bot can't fill the schedule with made-up patients.
+const MAX_UPCOMING_PER_PATIENT = 3;
+const MAX_REGISTRATIONS_PER_CALLER_PER_DAY = 6; // a parent registering a big family still fits
+const MAX_HOUSEHOLDS_PER_PHONE = 2;
 
 class ToolError extends Error {
   constructor(
@@ -373,6 +377,12 @@ interface BookingInput {
 async function bookOne(tx: Q, ctx: ToolContext, b: BookingInput) {
   await assertNoPatientOverlap(tx, b.patient.id, b.start, b.type);
   const now = fmtTs(practiceNow());
+  if (b.type !== "emergency") {
+    const upcoming = await tx.get<{ n: number }>("SELECT count(*)::int AS n FROM appointments WHERE patient_id = $1 AND status = 'booked' AND start_ts >= $2", [b.patient.id, now]);
+    if ((upcoming?.n ?? 0) >= MAX_UPCOMING_PER_PATIENT) {
+      throw new ToolError("TOO_MANY_UPCOMING", `${b.patient.first_name} already has ${MAX_UPCOMING_PER_PATIENT} upcoming appointments, the most we book online. Offer to reschedule one of them, or have the front desk call them back (notify_staff with type callback).`);
+    }
+  }
   const appt = await tx.get<{ id: number }>(
     `INSERT INTO appointments (patient_id, provider_id, type, start_ts, end_ts, status, notes, emergency_summary, session_id, created_at, updated_at)
      VALUES ($1,$2,$3,$4,$5,'booked',$6,$7,$8,$9,$9) RETURNING id`,
@@ -499,16 +509,32 @@ async function register_patient(ctx: ToolContext, args: Args): Promise<ToolResul
   );
   if (dup) return fail("ALREADY_REGISTERED", "A patient with this name and date of birth is already on file. Treat them as an existing patient and use verify_patient.");
 
+  const callbackInstead = "Don't try again; offer to have the front desk call them back to finish registering (notify_staff with type callback).";
+  // "local" is the dev server with no proxy header, so every tester shares it.
+  if (ctx.caller && ctx.caller !== "local") {
+    const recent = await db.get<{ n: number }>("SELECT count(*)::int AS n FROM patients WHERE registered_by = $1 AND created_at >= $2", [ctx.caller, fmtTs(addDays(now, -1))]);
+    if ((recent?.n ?? 0) >= MAX_REGISTRATIONS_PER_CALLER_PER_DAY) return fail("REGISTRATION_LIMIT", `Too many new patients registered from this connection today. ${callbackInstead}`);
+  }
+  if (householdId === null) {
+    const households = await db.get<{ n: number }>("SELECT count(DISTINCT household_id)::int AS n FROM patients WHERE phone = $1 AND practice_id = $2", [phone, pid()]);
+    if ((households?.n ?? 0) >= MAX_HOUSEHOLDS_PER_PHONE) return fail("PHONE_LIMIT", `That phone number is already on file for other patients. If they're family, verify that family member first and register this patient in their household. Otherwise: ${callbackInstead}`);
+  }
+
   const insurance = normInsurance(args.insurance_name);
   const email = args.email ? normEmail(args.email) : null;
   if (args.email && !email) return fail("INVALID_EMAIL", "That email address doesn't look right. Ask them to check it, or register without one.");
+  // Member ID is optional and only format-checked; the front desk verifies coverage before the visit.
+  const memberId = insurance && args.insurance_member_id ? String(args.insurance_member_id).replace(/[\s-]/g, "").toUpperCase() : null;
+  if (memberId && !/^[A-Z0-9]{5,20}$/.test(memberId)) return fail("INVALID_MEMBER_ID", "That member ID doesn't look right (it's usually 5-20 letters and numbers on the insurance card). Ask them to check it, or register without it.");
+  const subscriber = insurance && args.policyholder_name ? String(args.policyholder_name).trim().slice(0, 100) || null : null;
   let id: number;
   try {
     id = await transaction(async (tx) => {
       const r = await tx.get<{ id: number }>(
         // uq_patients_identity also catches two registrations racing past the duplicate check above
-        "INSERT INTO patients (first_name, last_name, dob, phone, insurance_name, household_id, created_at, practice_id, email) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id",
-        [first, last, dob, phone, insurance, householdId, fmtTs(now), pid(), email],
+        `INSERT INTO patients (first_name, last_name, dob, phone, insurance_name, household_id, created_at, practice_id, email, insurance_member_id, insurance_subscriber, registered_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+        [first, last, dob, phone, insurance, householdId, fmtTs(now), pid(), email, memberId, subscriber, ctx.caller ?? null],
       );
       if (householdId === null) await tx.run("UPDATE patients SET household_id = id WHERE id = $1", [r!.id]);
       return r!.id;
@@ -520,7 +546,7 @@ async function register_patient(ctx: ToolContext, args: Args): Promise<ToolResul
   ctx.verified.push(id);
   return {
     ok: true,
-    patient: { patient_id: id, first_name: first, last_name: last, date_of_birth: dob, insurance: insurance ?? "none (self-pay)", age, email_on_file: !!email },
+    patient: { patient_id: id, first_name: first, last_name: last, date_of_birth: dob, insurance: insurance ?? "none (self-pay)", member_id_on_file: !!memberId, age, email_on_file: !!email },
     note: insurance ? undefined : "No insurance on file. Mention self-pay prices and the membership plan if relevant.",
   };
 }

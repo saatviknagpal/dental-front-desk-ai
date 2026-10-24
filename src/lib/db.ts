@@ -142,6 +142,10 @@ ALTER TABLE patients ADD COLUMN IF NOT EXISTS practice_id INTEGER NOT NULL DEFAU
 ALTER TABLE notifications ADD COLUMN IF NOT EXISTS practice_id INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE sessions ADD COLUMN IF NOT EXISTS practice_id INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS email TEXT;                -- optional, for confirmations
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS insurance_member_id TEXT;  -- optional, as typed by the patient (not verified)
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS insurance_subscriber TEXT; -- policyholder's name when it isn't the patient
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS registered_by TEXT;        -- caller IP that created the record (abuse limits)
+CREATE INDEX IF NOT EXISTS idx_patients_registered_by ON patients (registered_by, created_at);
 CREATE INDEX IF NOT EXISTS idx_patients_practice_dob ON patients (practice_id, dob);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_patients_identity ON patients (practice_id, lower(first_name), lower(last_name), dob);
 CREATE INDEX IF NOT EXISTS idx_sessions_practice ON sessions (practice_id, last_active_at);

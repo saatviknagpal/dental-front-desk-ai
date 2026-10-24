@@ -42,7 +42,7 @@ async function bookingRace(): Promise<boolean> {
   try {
     // Throwaway patients, registered through the real tool so each context is allowed to book for its patient.
     for (let i = 0; i < BOOKERS; i++) {
-      const r = await tool(ctxs[i], "register_patient", { first_name: "Loadtest", last_name: `${runId}${letters(i)}`, date_of_birth: "1990-01-01", phone: "4155550000" });
+      const r = await tool(ctxs[i], "register_patient", { first_name: "Loadtest", last_name: `${runId}${letters(i)}`, date_of_birth: "1990-01-01", phone: `415556${String(i).padStart(4, "0")}` });
       if (!r.ok) throw new Error(`register failed: ${r.error}`);
       patientIds.push(r.patient.patient_id);
     }
@@ -109,9 +109,10 @@ async function chatBurst(): Promise<boolean> {
           headers: { "Content-Type": "application/json", "X-Forwarded-For": `10.0.${Math.floor(i / 250)}.${i % 250}` },
           body: JSON.stringify({ message: "What are your hours on Saturday?", practice: PRACTICES[0].slug, requestId: `loadtest-${Date.now()}-${i}` }),
         });
-        return { status: res.status, ms: Date.now() - start };
+        const body = res.ok ? await res.json().catch(() => ({})) : {};
+        return { status: res.status, ms: Date.now() - start, sessionId: body.sessionId as string | undefined };
       } catch {
-        return { status: 0, ms: Date.now() - start };
+        return { status: 0, ms: Date.now() - start, sessionId: undefined };
       }
     }),
   );
@@ -122,6 +123,11 @@ async function chatBurst(): Promise<boolean> {
   if (ms.length) console.log(`   reply time: P50 ${(pct(ms, 50) / 1000).toFixed(1)}s · P95 ${(pct(ms, 95) / 1000).toFixed(1)}s · max ${(Math.max(...ms) / 1000).toFixed(1)}s`);
   const ok = ms.length === CHATS;
   console.log(`   result: ${ok ? "PASS (every chat answered)" : "FAIL"}`);
+  // Remove the test chats so they don't show up on the staff dashboard.
+  const ids = results.map((r) => r.sessionId).filter((id): id is string => !!id);
+  await db.run("DELETE FROM messages WHERE session_id = ANY($1)", [ids]);
+  await db.run("DELETE FROM sessions WHERE id = ANY($1)", [ids]);
+  console.log(`   cleaned up ${ids.length} test chats`);
   return ok;
 }
 
