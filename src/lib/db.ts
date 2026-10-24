@@ -272,6 +272,7 @@ function backendKey() {
 async function backend(): Promise<Backend> {
   const key = backendKey();
   if (!g.__dentalDb || g.__dentalDb.key !== key) {
+    g.__dentalDb?.backend.close().catch(() => undefined); // don't leak the old pool's connections
     const b = process.env.DATABASE_URL ? pgBackend(process.env.DATABASE_URL) : pgliteBackend(process.env.PGLITE_DIR || undefined);
     g.__dentalDb = { key, backend: b, ready: b.exec(SCHEMA) };
   }
