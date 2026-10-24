@@ -223,6 +223,8 @@ function pgBackend(url: string): Backend {
     connectionString: url,
     ssl: needsSsl ? { rejectUnauthorized: false } : undefined,
     max: Number(process.env.DATABASE_POOL_MAX || 5),
+    // Fail a request after 10s instead of waiting forever when every connection is busy or the database is unreachable.
+    connectionTimeoutMillis: 10_000,
   });
   const rawFor =
     (c: pg.Pool | pg.PoolClient): Raw =>

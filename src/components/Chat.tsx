@@ -72,6 +72,7 @@ const store = {
 };
 
 const uid = () => Math.random().toString(36).slice(2);
+class PatientError extends Error {}
 
 /** Minimal, safe rendering: paragraphs, "- " bullet lists, **bold**. No HTML injection. */
 function RichText({ text }: { text: string }) {
@@ -183,16 +184,18 @@ export default function Chat({ greeting, practice }: Props) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sessionId, message: trimmed, practice: practice.slug, requestId }),
         });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Request failed");
+        const data = await res.json().catch(() => ({}));
+        // Rate limit, too long and "still working" come with a message the patient should see.
+        if ([409, 413, 429].includes(res.status) && data.error) throw new PatientError(data.error);
+        if (!res.ok) throw new Error("Request failed");
         retryRef.current = null;
         setSessionId(data.sessionId);
         store.set(SESSION_KEY, data.sessionId);
         setMessages((m) => [...m, { id: uid(), role: "assistant", text: data.reply, toolEvents: data.toolEvents, bookings: data.bookings, choices: data.choices }]);
-      } catch {
+      } catch (err) {
         setMessages((m) => [
           ...m,
-          { id: uid(), role: "assistant", failed: true, text: `Sorry, I couldn't reach the office system. Please try again, or call us at ${practice.phone}.` },
+          { id: uid(), role: "assistant", failed: true, text: err instanceof PatientError ? err.message : `Sorry, I couldn't reach the office system. Please try again, or call us at ${practice.phone}.` },
         ]);
         setInput(trimmed);
       } finally {
