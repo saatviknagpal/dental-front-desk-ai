@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { fmtUsd, type Usage } from "@/lib/pricing";
 import Icon from "./Icon";
+import ThemeToggle from "./ThemeToggle";
 
 interface Notification {
   id: number;
@@ -246,6 +247,7 @@ export default function StaffDashboard() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          <ThemeToggle />
           <Link href={`/p/${data.practice.slug}`} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm hover:bg-surface-2">
             <Icon name="external" className="size-4" />
             Open patient chat

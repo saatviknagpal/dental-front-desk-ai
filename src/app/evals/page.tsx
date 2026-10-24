@@ -8,6 +8,7 @@ import { db } from "@/lib/db";
 import { JUDGE_RUBRIC } from "@/lib/judge";
 import { fmtUsd } from "@/lib/pricing";
 import Icon from "@/components/Icon";
+import ThemeToggle from "@/components/ThemeToggle";
 import { Badge, n, type ResultRow, type RunRow } from "./shared";
 
 export const dynamic = "force-dynamic";
@@ -63,9 +64,12 @@ export default async function EvalsPage({ searchParams }: { searchParams: Promis
             A second AI plays a patient with a goal (for example &quot;book a cleaning next week&quot;) and chats with the real assistant. Afterwards, code checks the database to see if the right thing happened, and a judge from a different AI company grades the conversation.
           </p>
         </div>
-        <Link href="/staff" className="inline-flex min-h-10 items-center rounded-lg border border-border px-3 text-sm hover:bg-surface-2">
-          Staff dashboard
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <ThemeToggle />
+          <Link href="/staff" className="inline-flex min-h-10 items-center rounded-lg border border-border px-3 text-sm hover:bg-surface-2">
+            Staff dashboard
+          </Link>
+        </div>
       </header>
 
       <section className="space-y-3">

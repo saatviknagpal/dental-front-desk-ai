@@ -3,6 +3,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
+import ThemeToggle from "@/components/ThemeToggle";
 import { RunDetail, type ResultRow, type StepRow } from "../../shared";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +22,7 @@ export default async function EvalResultPage({ params }: { params: Promise<{ id:
   return (
     <main className="mx-auto max-w-4xl space-y-6 px-4 py-6 md:px-8">
       <header>
+        <div className="float-right"><ThemeToggle /></div>
         <p className="text-sm text-muted">
           <a href={`/evals?run=${r.run_id}`} className="underline underline-offset-2 hover:text-text">
             Eval run #{r.run_id}
