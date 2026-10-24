@@ -51,6 +51,8 @@ interface Dashboard {
   notifications: Notification[];
   appointments: Appointment[];
   sessions: SessionSummary[];
+  sessionsHasMore: boolean;
+  appointmentsView: { range: Range; from: string; to: string; truncated: boolean };
   demoResetAllowed: boolean;
   practice: { slug: string; name: string };
   practices: { slug: string; name: string }[];
@@ -64,6 +66,15 @@ interface TranscriptMessage {
   content: string;
   created_at: string;
 }
+
+type Range = "today" | "this_week" | "next_week" | "3_weeks";
+const RANGES: { value: Range; label: string }[] = [
+  { value: "today", label: "Today" },
+  { value: "this_week", label: "This week" },
+  { value: "next_week", label: "Next week" },
+  { value: "3_weeks", label: "3 weeks" },
+];
+const SESSIONS_PAGE = 20;
 
 const TYPE_STYLE: Record<Notification["type"], { label: string; cls: string }> = {
   emergency: { label: "Emergency", cls: "bg-danger-soft text-danger" },
@@ -174,20 +185,24 @@ export default function StaffDashboard() {
   const [error, setError] = useState(false);
   const [openSession, setOpenSession] = useState<string | null>(null);
   const [showCancelled, setShowCancelled] = useState(false);
+  const [range, setRange] = useState<Range>("this_week");
+  const [sessionsLimit, setSessionsLimit] = useState(SESSIONS_PAGE);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const load = useCallback(async () => {
     try {
       const slug = new URLSearchParams(window.location.search).get("practice") ?? "";
-      const r = await fetch(`/api/staff?practice=${encodeURIComponent(slug)}`, { cache: "no-store" });
+      const q = new URLSearchParams({ practice: slug, range, sessions: String(sessionsLimit) });
+      const r = await fetch(`/api/staff?${q}`, { cache: "no-store" });
       setData(await r.json());
       setError(false);
     } catch {
       setError(true);
     }
-  }, []);
+  }, [range, sessionsLimit]);
 
   useEffect(() => {
-    load();
+    load().finally(() => setLoadingMore(false));
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
   }, [load]);
@@ -341,14 +356,36 @@ export default function StaffDashboard() {
 
         <div className="lg:col-span-3">
           <Card
-            title="Upcoming appointments (3 weeks)"
+            title="Appointments"
             right={
-              <label className="flex items-center gap-2 text-sm text-muted">
+              <label className="flex min-h-9 items-center gap-2 text-sm text-muted">
                 <input type="checkbox" checked={showCancelled} onChange={(e) => setShowCancelled(e.target.checked)} className="accent-[var(--brand)]" />
                 Show cancelled
               </label>
             }
           >
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="inline-flex rounded-lg border border-border p-0.5" role="group" aria-label="Which days to show">
+                {RANGES.map((r) => (
+                  <button
+                    key={r.value}
+                    type="button"
+                    aria-pressed={range === r.value}
+                    onClick={() => setRange(r.value)}
+                    className={`min-h-9 rounded-md px-3 text-sm ${range === r.value ? "bg-brand font-bold text-on-brand" : "text-muted hover:bg-surface-2 hover:text-text"}`}
+                  >
+                    {r.label}
+                  </button>
+                ))}
+              </div>
+              <span className="text-sm text-muted tabular-nums">
+                {data.appointmentsView.from === data.appointmentsView.to ? data.appointmentsView.from : `${data.appointmentsView.from} to ${data.appointmentsView.to}`} · {appts.length} shown
+              </span>
+            </div>
+            {data.appointmentsView.truncated && (
+              <p className="mb-3 rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">Showing the first 500. Pick a shorter range to see the rest.</p>
+            )}
+            {appts.length === 0 && <p className="py-6 text-center text-sm text-muted">No appointments in this range.</p>}
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] text-left text-sm">
                 <thead className="text-xs text-muted">
@@ -439,6 +476,24 @@ export default function StaffDashboard() {
                 ))}
               </tbody>
             </table>
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-sm text-muted">
+              <span className="tabular-nums">
+                Showing {data.sessions.length} of {data.stats.conversations}
+              </span>
+              {data.sessionsHasMore && (
+                <button
+                  type="button"
+                  disabled={loadingMore}
+                  onClick={() => {
+                    setLoadingMore(true);
+                    setSessionsLimit((n) => n + SESSIONS_PAGE);
+                  }}
+                  className="min-h-9 rounded-lg border border-border px-4 font-bold text-brand-strong hover:bg-surface-2 disabled:opacity-50"
+                >
+                  {loadingMore ? "Loading…" : "Load more"}
+                </button>
+              )}
+            </div>
           </div>
         )}
       </Card>
