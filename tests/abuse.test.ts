@@ -24,6 +24,12 @@ describe("booking abuse limits", () => {
     expect((await register(newCtx("198.51.100.4"), 7)).ok).toBe(true); // a different connection is fine
   });
 
+  it("holds the registration cap when a bot registers from many chats at once", async () => {
+    const results = await Promise.all(names.map((_, i) => register({ ...newCtx("203.0.113.7"), sessionId: `bot-${i}` }, i)));
+    expect(results.filter((r) => r.ok)).toHaveLength(6);
+    expect(results.filter((r) => r.error === "REGISTRATION_LIMIT")).toHaveLength(2);
+  });
+
   it("caps how many separate households share one phone number, but not family members", async () => {
     const phone = "4155559999";
     expect((await register(newCtx(), 0, { phone })).ok).toBe(true);
@@ -45,6 +51,14 @@ describe("booking abuse limits", () => {
     };
     for (const day of ["2026-10-26", "2026-10-27", "2026-10-28"]) expect((await book("checkup", day)).ok).toBe(true);
     expect((await book("cleaning", "2026-10-29")).error).toBe("TOO_MANY_UPCOMING");
+    // A family booking hitting the cap must not tell the model to search and retry.
+    const kid = await call(ctx, "register_patient", { first_name: "Kid", last_name: "Tester", date_of_birth: "2018-05-05", insurance_name: "none", same_household_as_patient_id: patient.patient_id });
+    const [a, b] = (await call(ctx, "find_available_slots", { appointment_type: "cleaning", date_from: "2026-10-30", date_to: "2026-10-30" })).slots;
+    const family = await call(ctx, "book_family_appointments", {
+      bookings: [patient.patient_id, kid.patient.patient_id].map((id, i) => ({ patient_id: id, appointment_type: "cleaning", start_time: [a, b][i].start_time, provider_id: [a, b][i].provider_id })),
+    });
+    expect(family.error).toBe("TOO_MANY_UPCOMING");
+    expect(family.message).not.toMatch(/search again/i);
     expect((await book("emergency", "2026-10-29", { emergency_summary: "cracked molar, pain 8/10" })).ok).toBe(true);
   });
 });

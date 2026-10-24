@@ -509,17 +509,6 @@ async function register_patient(ctx: ToolContext, args: Args): Promise<ToolResul
   );
   if (dup) return fail("ALREADY_REGISTERED", "A patient with this name and date of birth is already on file. Treat them as an existing patient and use verify_patient.");
 
-  const callbackInstead = "Don't try again; offer to have the front desk call them back to finish registering (notify_staff with type callback).";
-  // "local" is the dev server with no proxy header, so every tester shares it.
-  if (ctx.caller && ctx.caller !== "local") {
-    const recent = await db.get<{ n: number }>("SELECT count(*)::int AS n FROM patients WHERE registered_by = $1 AND created_at >= $2", [ctx.caller, fmtTs(addDays(now, -1))]);
-    if ((recent?.n ?? 0) >= MAX_REGISTRATIONS_PER_CALLER_PER_DAY) return fail("REGISTRATION_LIMIT", `Too many new patients registered from this connection today. ${callbackInstead}`);
-  }
-  if (householdId === null) {
-    const households = await db.get<{ n: number }>("SELECT count(DISTINCT household_id)::int AS n FROM patients WHERE phone = $1 AND practice_id = $2", [phone, pid()]);
-    if ((households?.n ?? 0) >= MAX_HOUSEHOLDS_PER_PHONE) return fail("PHONE_LIMIT", `That phone number is already on file for other patients. If they're family, verify that family member first and register this patient in their household. Otherwise: ${callbackInstead}`);
-  }
-
   const insurance = normInsurance(args.insurance_name);
   const email = args.email ? normEmail(args.email) : null;
   if (args.email && !email) return fail("INVALID_EMAIL", "That email address doesn't look right. Ask them to check it, or register without one.");
@@ -530,6 +519,21 @@ async function register_patient(ctx: ToolContext, args: Args): Promise<ToolResul
   let id: number;
   try {
     id = await transaction(async (tx) => {
+      // Limits are counted inside the transaction under a lock, so parallel chats from one bot can't all pass the count at once.
+      const callbackInstead = "Don't try again; offer to have the front desk call them back to finish registering (notify_staff with type callback).";
+      // "local" is the dev server with no proxy header, so every tester shares it.
+      if (ctx.caller && ctx.caller !== "local") {
+        await tx.run("SELECT pg_advisory_xact_lock(hashtext($1))", [`register:${ctx.caller}`]);
+        const recent = await tx.get<{ n: number }>("SELECT count(*)::int AS n FROM patients WHERE registered_by = $1 AND created_at >= $2", [ctx.caller, fmtTs(addDays(now, -1))]);
+        if ((recent?.n ?? 0) >= MAX_REGISTRATIONS_PER_CALLER_PER_DAY) throw new ToolError("REGISTRATION_LIMIT", `Too many new patients registered from this connection today. ${callbackInstead}`);
+      }
+      if (householdId === null) {
+        await tx.run("SELECT pg_advisory_xact_lock(hashtext($1))", [`phone:${pid()}:${phone}`]);
+        const households = await tx.get<{ n: number }>("SELECT count(DISTINCT household_id)::int AS n FROM patients WHERE practice_id = $1 AND phone = $2", [pid(), phone]);
+        if ((households?.n ?? 0) >= MAX_HOUSEHOLDS_PER_PHONE) {
+          throw new ToolError("PHONE_LIMIT", `That phone number is already on file for other patients. If they're family, verify that family member first and register this patient in their household. Otherwise: ${callbackInstead}`);
+        }
+      }
       const r = await tx.get<{ id: number }>(
         // uq_patients_identity also catches two registrations racing past the duplicate check above
         `INSERT INTO patients (first_name, last_name, dob, phone, insurance_name, household_id, created_at, practice_id, email, insurance_member_id, insurance_subscriber, registered_by)
@@ -790,7 +794,7 @@ async function book_family_appointments(ctx: ToolContext, args: Args): Promise<T
     });
     return { ok: true, appointments: booked };
   } catch (e) {
-    if (e instanceof ToolError) return fail(e.code, `${e.message} Nothing was booked (all-or-nothing). Search again with find_family_slots.`);
+    if (e instanceof ToolError) return fail(e.code, `${e.message} Nothing was booked (all-or-nothing).${e.code === "SLOT_TAKEN" ? " Search again with find_family_slots." : ""}`);
     throw e;
   }
 }

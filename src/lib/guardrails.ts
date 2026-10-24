@@ -61,12 +61,13 @@ export async function checkOutput(reply: string, allowedPatientIds: number[], us
     .filter(([f, l]) => !said.includes(`${f} ${l}`.toLowerCase()));
   if (!phones.length && !names.length) return null;
 
+  // Matches (first, last) pairs so the per-practice identity and phone indexes are used.
   const leaked = await db.all<{ id: number }>(
     `SELECT id FROM patients
-     WHERE NOT (id = ANY($1::int[]))
-       AND (phone = ANY($2::text[]) OR (lower(first_name) || ' ' || lower(last_name)) = ANY($3::text[]))
+     WHERE practice_id = $1 AND NOT (id = ANY($2::int[]))
+       AND (phone = ANY($3::text[]) OR (lower(first_name), lower(last_name)) IN (SELECT * FROM unnest($4::text[], $5::text[])))
      LIMIT 1`,
-    [allowedPatientIds, phones, names.map(([f, l]) => `${f} ${l}`.toLowerCase())],
+    [currentPractice().id, allowedPatientIds, phones, names.map(([f]) => f.toLowerCase()), names.map(([, l]) => l.toLowerCase())],
   );
   return leaked.length ? { reply: LEAK_REPLY, reason: "other-patient-data" } : null;
 }

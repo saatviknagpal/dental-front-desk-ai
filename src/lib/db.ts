@@ -146,6 +146,7 @@ ALTER TABLE patients ADD COLUMN IF NOT EXISTS insurance_member_id TEXT;  -- opti
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS insurance_subscriber TEXT; -- policyholder's name when it isn't the patient
 ALTER TABLE patients ADD COLUMN IF NOT EXISTS registered_by TEXT;        -- caller IP that created the record (abuse limits)
 CREATE INDEX IF NOT EXISTS idx_patients_registered_by ON patients (registered_by, created_at);
+CREATE INDEX IF NOT EXISTS idx_patients_phone ON patients (practice_id, phone);
 CREATE INDEX IF NOT EXISTS idx_patients_practice_dob ON patients (practice_id, dob);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_patients_identity ON patients (practice_id, lower(first_name), lower(last_name), dob);
 CREATE INDEX IF NOT EXISTS idx_sessions_practice ON sessions (practice_id, last_active_at);
