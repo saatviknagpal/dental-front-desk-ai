@@ -27,5 +27,7 @@ services:
         value: gemini
       - key: GEMINI_API_KEY
         sync: false
+      - key: CLIENT_IP_HEADER
+        value: cf-connecting-ip
       - key: ALLOW_DEMO_RESET
         value: "true"

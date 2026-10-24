@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { MAX_USER_CHARS, runTurn, SessionBusyError } from "@/lib/agent";
+import { clientIp } from "@/lib/clientIp";
 import { allowRequest } from "@/lib/guardrails";
 import { practiceBySlug, PRACTICES, withPractice } from "@/lib/practice";
 import { startWorker } from "@/lib/queue";
@@ -9,8 +10,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   startWorker(); // idempotent; also started at boot by instrumentation.ts
-  // The proxy appends the real client IP last; earlier entries are whatever the client sent.
-  const caller = req.headers.get("x-forwarded-for")?.split(",").pop()?.trim() || "local";
+  const caller = clientIp(req.headers);
   if (!(await allowRequest(caller))) {
     return NextResponse.json({ error: "Too many messages. Please wait a minute and try again." }, { status: 429 });
   }
