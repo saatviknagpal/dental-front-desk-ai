@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { staffScope } from "@/lib/staffGuard";
-import { STAFF_ACCESS_HEADER, staffAccess } from "@/lib/staffAuth";
+import { clearLoginFailures, LOGIN_LOCK_MS, LOGIN_MAX_FAILURES, loginLocked, recordLoginFailure, STAFF_ACCESS_HEADER, staffAccess } from "@/lib/staffAuth";
 
 const basic = (user: string, pass: string) => `Basic ${btoa(`${user}:${pass}`)}`;
 
@@ -16,6 +16,19 @@ describe("staff login", () => {
     expect(staffAccess(basic("harbor-family", "nope"))).toBeNull();
     expect(staffAccess("Basic !!!not-base64")).toBeNull();
     expect(staffAccess(null)).toBeNull();
+  });
+
+  it("locks a client out after too many wrong passwords, then lets it back in", () => {
+    const t = 1_000_000;
+    for (let i = 0; i < LOGIN_MAX_FAILURES - 1; i++) recordLoginFailure("1.2.3.4", t);
+    expect(loginLocked("1.2.3.4", t)).toBe(false);
+    recordLoginFailure("1.2.3.4", t);
+    expect(loginLocked("1.2.3.4", t)).toBe(true);
+    expect(loginLocked("5.6.7.8", t)).toBe(false); // other clients unaffected
+    expect(loginLocked("1.2.3.4", t + LOGIN_LOCK_MS + 1)).toBe(false); // lock expires
+    recordLoginFailure("9.9.9.9", t);
+    clearLoginFailures("9.9.9.9"); // a correct login resets the count
+    expect(loginLocked("9.9.9.9", t)).toBe(false);
   });
 
   it("keeps practice staff inside their own practice", () => {
