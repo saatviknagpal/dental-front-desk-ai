@@ -58,7 +58,9 @@ Code layout: `src/lib/` holds the domain logic and doesn't depend on Next.js (to
 
 **Guardrails around every turn.** Incoming messages go through OpenAI moderation. Self-harm gets a short reply with the 988 crisis line, and abuse gets a polite refusal. If the check itself fails, the chat continues. Outgoing replies are checked for any other patient's full name or phone number; if one shows up and that patient isn't verified in this chat (and the user didn't type it), the reply is replaced. Each caller gets 20 messages a minute (keyed by the IP our proxy reports, not one the client can fake) and each chat 40 turns, which limits cost abuse. A chat handles one message at a time: if a second arrives while the first is still running (two tabs, a retry), it gets "still working" instead of both racing to update the same chat. Each message also carries an idempotency key. If the connection drops after a booking and the patient taps Send again, the server returns the saved reply instead of running the turn twice. Every guardrail hit is logged and shows up in the staff transcript.
 
-**Alerts and confirmation emails go through a job queue.** Saving an alert or a booking also inserts a `jobs` row in the same transaction, so a job exists if and only if the write it belongs to committed. A worker claims jobs with `FOR UPDATE SKIP LOCKED` (safe with any number of app instances) and retries temporary failures with exponential backoff, up to five times. Errors that can't succeed on retry, like a rejected email address, fail right away. Failed deliveries show on the practice's `/staff` page with a Retry button, so nothing disappears quietly. Jobs stuck in "running" after a crash are picked up again after five minutes, and finished jobs are deleted after a week. It's plain Postgres, so there is no extra service to run.
+**Alerts and confirmation emails go through a job queue.** Saving an alert or a booking also inserts a `jobs` row in the same transaction, so a job exists if and only if the write it belongs to committed. A worker claims jobs with `FOR UPDATE SKIP LOCKED` (safe with any number of app instances) and retries temporary failures with exponential backoff, up to five times. Errors that can't succeed on retry, like a rejected email address, fail right away. Failed deliveries show on the practice's `/staff` page with a Retry button, so nothing disappears quietly. Jobs stuck in "running" after a crash are picked up again after five minutes, and finished jobs are deleted after a week. It's plain Postgres, so there is no extra service to run. Each worker only claims job types its code knows, so an older instance in the middle of a deploy leaves new kinds of jobs for the newer one.
+
+**Alerts reach the practice, not us, and carry no patient details.** Every alert shows on that practice's `/staff` page (the tab title shows the open count, and a chime plays for a new emergency), and is also posted to the practice's own channel, such as a Slack incoming webhook set per practice in `STAFF_WEBHOOKS`. The posted message only says what happened and where ("URGENT: New emergency at Harbor Family Dental") plus a link to the dashboard. The symptoms and the patient's name stay behind the staff login, because chat tools like Slack aren't covered for health data.
 
 **Multiple practices.** Patients, providers, alerts, chats and jobs carry a `practice_id`, and a unique index stops the same person being registered twice at one practice. Slots and appointments inherit it through their provider and patient. The current practice rides along with each request in Node's `AsyncLocalStorage`, so the clock, the prompt and every query use that practice's data and timezone without passing it through every function. A chat started at one practice can't be continued at another. Tests check that one practice can't see or book the other's patients or providers.
 
@@ -68,7 +70,25 @@ Code layout: `src/lib/` holds the domain logic and doesn't depend on Next.js (to
 
 **No Redis yet.** With one app instance, rate limits in memory and Postgres for everything else are enough. Redis becomes worth it at two or more instances, for shared rate-limit counters and a short-lived availability cache. Bookings would still be checked against Postgres.
 
-**Staff access.** Staff pages use HTTP Basic auth. Each practice has its own password (`STAFF_PASSWORDS`), and the username is the practice slug, so Harbor's front desk can't open Bright Smile's chats or alerts. The admin password (`STAFF_PASSWORD`) sees every practice, the eval report and the demo reset. Patients don't log in. Like a phone call to a front desk, they identify themselves with name and date of birth.
+**Staff access.** Staff pages use HTTP Basic auth. Each practice has its own password (`STAFF_PASSWORDS`), and the username is the practice slug, so Harbor's front desk can't open Bright Smile's chats or alerts. The admin password (`STAFF_PASSWORD`) sees every practice, the eval report and the demo reset. Passwords are compared in constant time, and ten wrong passwords from one IP lock it out of the staff area for 15 minutes. Patients don't log in. Like a phone call to a front desk, they identify themselves with name and date of birth.
+
+## Privacy, HIPAA and security
+
+This demo is **not HIPAA compliant**, and it only holds made-up patients. Real patient data would make the practice a covered entity and this service its business associate. Here is where things stand.
+
+What's already in place:
+- Patients prove who they are (full name and date of birth) before the assistant shares or changes anything, failed lookups don't say which field was wrong, and repeated guessing is locked out.
+- Every reply is checked for another patient's name or phone number before it's sent.
+- Each practice only sees its own patients, chats and alerts, with its own staff login. A spouse can be booked for, but can't see the other adult's appointments.
+- Staff alerts posted outside the app carry no patient details.
+- Traffic is HTTPS on any real deployment. Staff passwords are compared in constant time, and repeated wrong passwords are locked out.
+
+What production would need before real patients:
+- **Business associate agreements (BAAs)** with every service that sees patient data: the model provider, with zero data retention (the demo runs on a free OpenAI tier that may use data for training, which is fine only for fake data); the eval judge (Gemini through Google Cloud rather than an AI Studio key); the database host; the app host; and the email provider.
+- **Per-person staff accounts** through the practice's SSO (Google Workspace, Microsoft or Okta), with a second factor, automatic logout and no shared passwords. A JWT or session cookie on its own wouldn't solve this; the accounts and the login around them are the point.
+- **An audit log** of which staff member opened which patient's record and when.
+- **Retention rules**: chat transcripts are kept forever today. They'd be deleted or de-identified after a set period.
+- Encryption at rest confirmed under the database BAA, a security risk assessment, a breach-notification process and staff training.
 
 ## Prioritization and scope
 
@@ -94,14 +114,14 @@ Failure modes I designed for:
 | Another patient's data in a reply | Verification guard on every tool, generic lookup errors, lockout, output privacy check | A one-time SMS code would be stronger than date of birth |
 | Missed emergency | Red-flag rules, automatic alert, two eval scenarios | Unusual symptom descriptions; more scenarios needed |
 | LLM outage or slowness | SDK retries, fallback model, friendly fallback reply, tool-call cap | No backpressure queue for chat requests |
-| Webhook or email provider down | Job queue retries with backoff; permanent errors fail fast | Failed deliveries show on `/staff` with Retry, but nobody is paged yet |
-| Load | Stateless app, connection pool, practice-scoped indexes | Not load-tested. At ~0.1 conversations/second on average (maybe 5-10/s at peak), the real limit is LLM rate limits and cost, not the web tier |
+| Webhook or email provider down | Job queue retries with backoff; permanent errors fail fast | Failed deliveries show on `/staff` with Retry. Alerts go to a chat channel, not a real pager (SMS/phone call) |
+| Load | Stateless app, connection pool, practice-scoped indexes, idempotency keys | `npm run loadtest`: 50 simultaneous bookings for one slot gave 1 booking and 49 "taken". At ~0.1 conversations/second on average (maybe 5-10/s at peak), the real limit is LLM rate limits and cost, not the web tier |
 
-What I'd add next for production: per-practice hours, staff SSO with per-person accounts, schema migrations as a deploy step instead of at app start (today the setup runs under a Postgres advisory lock so instances starting together take turns), Redis once there's more than one instance, SMS confirmations and on-call paging through the job queue, routing simple FAQ turns to a cheaper model, load tests, tracing per tool call, PHI retention rules, BAAs with the model providers, and the eval suite in CI on every prompt or model change.
+What I'd add next for production: per-practice hours, staff SSO with per-person accounts, schema migrations as a deploy step instead of at app start (today the setup runs under a Postgres advisory lock so instances starting together take turns), Redis once there's more than one instance, SMS confirmations and on-call paging through the job queue, routing simple FAQ turns to a cheaper model, tracing per tool call, and the eval suite in CI on every prompt or model change. The privacy work is listed below.
 
 ## Testing and evals
 
-Unit tests (`npm test`, 52 tests, no LLM): booking rules, two simultaneous bookings for one slot, verification and lockout, household access, family all-or-nothing, atomic reschedule, guardrails, one turn at a time per chat, the job queue (retry, fail-fast, no job when the booking rolls back), confirmation emails and calendar files, weekday-to-date mapping in the prompt, practice isolation, and staff logins.
+Unit tests (`npm test`, 56 tests, no LLM): booking rules, two simultaneous bookings for one slot, verification and lockout, household access, family all-or-nothing, atomic reschedule, guardrails, one turn at a time per chat, the job queue (retry, fail-fast, no job when the booking rolls back), confirmation emails and calendar files, weekday-to-date mapping in the prompt, practice isolation, and staff logins.
 
 Load test (`npm run loadtest`, against the real database and a running server): 50 patients try to book the same slot at the same moment, and exactly one gets it. The other 49 are told it's taken and offered other times, the slot holds one appointment, and the test patients are cleaned up afterwards. Then 20 chats hit `/api/chat` at once. On Supabase with the dev server: the race finished in 4.9s with 1 booking and 49 "slot taken", and all 20 chats were answered (P50 4.8s, P95 5.1s on a single dev process, mostly waiting on the LLM).
 
