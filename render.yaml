@@ -17,6 +17,8 @@ services:
         sync: false
       - key: STAFF_PASSWORD
         sync: false
+      - key: STAFF_WEBHOOKS
+        sync: false
       - key: STAFF_PASSWORDS
         sync: false
       - key: RESEND_API_KEY

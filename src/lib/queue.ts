@@ -27,7 +27,7 @@ export class PermanentJobError extends Error {}
 
 const HANDLERS: Record<JobType, Handler> = {
   // Throws on failure so the job is retried.
-  staff_alert: (p) => notifyStaffWebhook({ type: String(p.type), urgency: String(p.urgency), text: String(p.text) }),
+  staff_alert: (p) => notifyStaffWebhook({ practice: String(p.practice), text: String(p.text) }),
   booking_confirmation: (p) => sendConfirmationEmail(p as unknown as ConfirmationPayload),
 };
 

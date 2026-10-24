@@ -7,6 +7,7 @@
 //  - Errors come back as { ok: false, error, message } so the model can recover gracefully.
 
 import { db, transaction, type Q } from "./db";
+import { alertText } from "./notify";
 import { enqueue } from "./queue";
 import { APPOINTMENT_TYPES, BOOKING_HORIZON_DAYS, currentPractice, CLOSE_HOUR, OPEN_HOUR, OPEN_WEEKDAYS, SLOT_MINUTES, type AppointmentType } from "./practice";
 import { addDays, addMinutes, dayName, fmtDate, fmtTs, humanTs, parseTs, practiceNow, startOfDay, weekday } from "./time";
@@ -354,7 +355,8 @@ async function insertNotification(q: Q, type: string, urgency: string, summary: 
     "INSERT INTO notifications (type, urgency, patient_id, summary, session_id, created_at, practice_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
     [type, urgency, patientId, summary, sessionId, fmtTs(practiceNow()), pid()],
   );
-  await enqueue(q, "staff_alert", { notification_id: r!.id, type, urgency, text: `${currentPractice().name}: ${summary}` });
+  const practice = currentPractice();
+  await enqueue(q, "staff_alert", { notification_id: r!.id, type, urgency, practice: practice.slug, text: alertText(practice, type, urgency) });
   return r!.id;
 }
 

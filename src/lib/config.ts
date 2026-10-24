@@ -36,8 +36,20 @@ export function practiceTimezone(): string {
   return currentPractice().timezone;
 }
 
-export function staffWebhookUrl(): string {
+/** Each practice's own alert channel (STAFF_WEBHOOKS JSON by slug); STAFF_WEBHOOK_URL covers practices not listed. */
+export function staffWebhookUrl(practiceSlug: string): string {
+  try {
+    const own = JSON.parse(process.env.STAFF_WEBHOOKS || "{}")[practiceSlug];
+    if (typeof own === "string" && own.trim()) return own.trim();
+  } catch {
+    /* bad JSON: fall back */
+  }
   return (process.env.STAFF_WEBHOOK_URL || "").trim();
+}
+
+/** Public base URL for links in alerts. Render sets RENDER_EXTERNAL_URL automatically. */
+export function appUrl(): string {
+  return (process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || "http://localhost:3000").replace(/\/$/, "");
 }
 
 export function demoResetAllowed(): boolean {
