@@ -58,7 +58,7 @@ export async function dashboard(practiceId: number, opts: { range?: AppointmentR
 
   const failedJobs = await db.all<Record<string, unknown>>(
     `SELECT id, type, attempts, last_error, created_at, payload->>'to' AS to, payload->>'text' AS text
-     FROM jobs WHERE practice_id = $1 AND status = 'failed' ORDER BY id DESC LIMIT 20`,
+     FROM jobs WHERE practice_id = $1 AND status = 'failed' AND type IN ('staff_alert', 'booking_confirmation') ORDER BY id DESC LIMIT 20`,
     [practiceId],
   );
 

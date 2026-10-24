@@ -347,7 +347,7 @@ export default function StaffDashboard() {
             {data.failedJobs.map((j) => (
               <li key={j.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border px-3 py-2">
                 <div className="min-w-0">
-                  <div className="font-medium">{j.type === "booking_confirmation" ? `Confirmation email to ${j.to}` : j.type === "quality_check" ? "Quality check for a chat" : `Staff alert: ${j.text ?? ""}`}</div>
+                  <div className="font-medium">{j.type === "booking_confirmation" ? `Confirmation email to ${j.to}` : `Staff alert: ${j.text ?? ""}`}</div>
                   <div className="truncate text-xs text-muted">{j.last_error}</div>
                 </div>
                 <button type="button" onClick={() => retryJob(j.id)} className="min-h-9 rounded-lg border border-border px-3 text-sm font-bold text-brand-strong hover:bg-surface-2">
