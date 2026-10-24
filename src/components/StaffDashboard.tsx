@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fmtUsd, type Usage } from "@/lib/pricing";
 import Icon from "./Icon";
 import ThemeToggle from "./ThemeToggle";
@@ -180,6 +180,27 @@ function Transcript({ sessionId, onClose }: { sessionId: string; onClose: () => 
   );
 }
 
+/** Soft two-note chime made with Web Audio, so there's no sound file to ship. Browsers may mute it until the page is clicked. */
+function chime() {
+  try {
+    const ctx = new AudioContext();
+    [660, 880].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const t = ctx.currentTime + i * 0.18;
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.12, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.5);
+    });
+  } catch {
+    /* no audio available — the title and the red alert still show */
+  }
+}
+
 export default function StaffDashboard() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [error, setError] = useState(false);
@@ -189,6 +210,21 @@ export default function StaffDashboard() {
   const [sessionsLimit, setSessionsLimit] = useState(SESSIONS_PAGE);
   const [loadingMore, setLoadingMore] = useState(false);
   const [qcMessage, setQcMessage] = useState<string | null>(null);
+  const seenEmergencies = useRef<Set<number> | null>(null);
+
+  // Open-alert count in the tab title, and a short chime when a new emergency arrives (not on first load).
+  useEffect(() => {
+    if (!data) {
+      seenEmergencies.current = null; // switching practice: don't chime for its existing alerts
+      return;
+    }
+    const open = data.notifications.filter((n) => !n.acknowledged);
+    document.title = `${open.length ? `(${open.length}) ` : ""}Front desk dashboard — ${data.practice.name}`;
+    const ids = new Set(open.filter((n) => n.type === "emergency").map((n) => n.id));
+    const seen = seenEmergencies.current;
+    if (seen && [...ids].some((id) => !seen.has(id))) chime();
+    seenEmergencies.current = ids;
+  }, [data]);
 
   const load = useCallback(async () => {
     try {
