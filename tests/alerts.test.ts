@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "@/lib/db";
 import { PRACTICES, withPractice } from "@/lib/practice";
-import { processJobs } from "@/lib/queue";
+import { processJobs, queueQualityChecks } from "@/lib/queue";
 import { seed } from "@/lib/seed";
 import { executeTool, type ToolContext } from "@/lib/tools";
 
@@ -15,6 +15,23 @@ beforeEach(async () => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+});
+
+describe("quality check queue", () => {
+  it("queues each ungraded finished chat once, skipping graded and one-message chats", async () => {
+    const mk = async (id: string, userMsgs: number, judged = false) => {
+      await db.run("INSERT INTO sessions (id, started_at, last_active_at, practice_id, judge) VALUES ($1, 'x', 'x', $2, $3)", [id, brightSmile.id, judged ? '{"pass":true}' : null]);
+      for (let i = 0; i < userMsgs; i++) await db.run("INSERT INTO messages (session_id, role, content, created_at) VALUES ($1, 'user', 'hi', 'x')", [id]);
+    };
+    await mk("two-turns", 2);
+    await mk("one-turn", 1);
+    await mk("graded", 3, true);
+    expect(await withPractice(brightSmile, () => queueQualityChecks())).toBe(1);
+    expect(await withPractice(brightSmile, () => queueQualityChecks())).toBe(0); // already queued
+    expect(await withPractice(harbor, () => queueQualityChecks())).toBe(0); // other practice's chats untouched
+    const job = await db.get<{ payload: { session_id: string; practice: string } }>("SELECT payload FROM jobs WHERE type = 'quality_check'");
+    expect(job?.payload).toEqual({ session_id: "two-turns", practice: "bright-smile" });
+  });
 });
 
 describe("staff alerts", () => {

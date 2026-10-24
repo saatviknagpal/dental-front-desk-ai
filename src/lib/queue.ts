@@ -7,10 +7,11 @@
 
 import { db, type Q } from "./db";
 import { sendConfirmationEmail, type ConfirmationPayload } from "./email";
+import { judgeSession } from "./judge";
 import { notifyStaffWebhook } from "./notify";
-import { currentPractice } from "./practice";
+import { currentPractice, practiceBySlug, PRACTICES, withPractice } from "./practice";
 
-export type JobType = "staff_alert" | "booking_confirmation";
+export type JobType = "staff_alert" | "booking_confirmation" | "quality_check";
 
 export interface Job {
   id: number;
@@ -29,7 +30,28 @@ const HANDLERS: Record<JobType, Handler> = {
   // Throws on failure so the job is retried.
   staff_alert: (p) => notifyStaffWebhook({ practice: String(p.practice), text: String(p.text) }),
   booking_confirmation: (p) => sendConfirmationEmail(p as unknown as ConfirmationPayload),
+  // AI judge grades a finished chat; rate limits throw and get retried with backoff.
+  quality_check: async (p) => {
+    const practice = practiceBySlug(String(p.practice)) ?? PRACTICES[0];
+    const verdict = await withPractice(practice, () => judgeSession(String(p.session_id)));
+    await db.run("UPDATE sessions SET judge = $1 WHERE id = $2", [JSON.stringify(verdict), String(p.session_id)]);
+  },
 };
+
+/** Queue a quality check for this practice's finished chats that haven't been graded or queued yet. */
+export async function queueQualityChecks(limit = 50): Promise<number> {
+  const practice = currentPractice();
+  const sessions = await db.all<{ id: string }>(
+    `SELECT s.id FROM sessions s
+     WHERE s.practice_id = $1 AND s.judge IS NULL
+       AND (SELECT count(*) FROM messages m WHERE m.session_id = s.id AND m.role = 'user') >= 2
+       AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.type = 'quality_check' AND j.status IN ('pending', 'running') AND j.payload->>'session_id' = s.id)
+     ORDER BY s.last_active_at DESC LIMIT $2`,
+    [practice.id, limit],
+  );
+  for (const s of sessions) await enqueue(db, "quality_check", { session_id: s.id, practice: practice.slug });
+  return sessions.length;
+}
 
 export async function enqueue(q: Q, type: JobType, payload: Record<string, unknown>): Promise<void> {
   await q.run("INSERT INTO jobs (type, payload, practice_id) VALUES ($1, $2, $3)", [type, JSON.stringify(payload), currentPractice().id]);
@@ -39,9 +61,9 @@ export async function enqueue(q: Q, type: JobType, payload: Record<string, unkno
 export async function processJobs(limit = 10, handlers: Record<string, Handler> = HANDLERS): Promise<number> {
   const jobs = await db.all<Job>(
     `UPDATE jobs SET status = 'running', attempts = attempts + 1, locked_at = now()
-     WHERE id IN (SELECT id FROM jobs WHERE status = 'pending' AND run_at <= now() ORDER BY id LIMIT $1 FOR UPDATE SKIP LOCKED)
+     WHERE id IN (SELECT id FROM jobs WHERE status = 'pending' AND run_at <= now() AND type = ANY($2) ORDER BY id LIMIT $1 FOR UPDATE SKIP LOCKED)
      RETURNING id, type, payload, attempts, max_attempts`,
-    [limit],
+    [limit, Object.keys(handlers)], // only job types this code knows, so an older instance mid-deploy leaves new types alone
   );
   for (const job of jobs) {
     try {

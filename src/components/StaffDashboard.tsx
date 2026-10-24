@@ -188,6 +188,7 @@ export default function StaffDashboard() {
   const [range, setRange] = useState<Range>("this_week");
   const [sessionsLimit, setSessionsLimit] = useState(SESSIONS_PAGE);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [qcMessage, setQcMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -215,6 +216,14 @@ export default function StaffDashboard() {
   const retryJob = async (id: string) => {
     await fetch(`/api/staff/jobs/${id}?practice=${data?.practice.slug ?? ""}`, { method: "POST" });
     load();
+  };
+
+  const runQualityCheck = async () => {
+    setQcMessage("Queuing…");
+    const r = await fetch(`/api/staff/quality-check?practice=${data?.practice.slug ?? ""}`, { method: "POST" }).catch(() => null);
+    const body = r ? await r.json().catch(() => ({})) : {};
+    if (!r?.ok) setQcMessage(body.error ?? "Couldn't start the quality check.");
+    else setQcMessage(body.queued ? `Checking ${body.queued} chat${body.queued === 1 ? "" : "s"}. Results fill in below as they finish.` : "Every finished chat is already checked.");
   };
 
   const reset = async () => {
@@ -302,7 +311,7 @@ export default function StaffDashboard() {
             {data.failedJobs.map((j) => (
               <li key={j.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border px-3 py-2">
                 <div className="min-w-0">
-                  <div className="font-medium">{j.type === "booking_confirmation" ? `Confirmation email to ${j.to}` : `Staff alert: ${j.text ?? ""}`}</div>
+                  <div className="font-medium">{j.type === "booking_confirmation" ? `Confirmation email to ${j.to}` : j.type === "quality_check" ? "Quality check for a chat" : `Staff alert: ${j.text ?? ""}`}</div>
                   <div className="truncate text-xs text-muted">{j.last_error}</div>
                 </div>
                 <button type="button" onClick={() => retryJob(j.id)} className="min-h-9 rounded-lg border border-border px-3 text-sm font-bold text-brand-strong hover:bg-surface-2">
@@ -420,7 +429,22 @@ export default function StaffDashboard() {
         </div>
       </div>
 
-      <Card title="Conversations">
+      <Card
+        title="Conversations"
+        right={
+          data.admin && (
+            <button type="button" onClick={runQualityCheck} className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-border px-3 text-sm font-bold text-brand-strong hover:bg-surface-2">
+              <Icon name="checkCircle" className="size-4" />
+              Run quality check
+            </button>
+          )
+        }
+      >
+        {qcMessage && (
+          <p className="mb-3 rounded-lg bg-info-soft px-3 py-2 text-sm text-info" role="status">
+            {qcMessage}
+          </p>
+        )}
         <p className="-mt-1 mb-4 text-sm text-muted">
           Every chat with the assistant. Patient ratings and the AI quality check flag the bad ones, so the team can read the transcript and fix the assistant.
         </p>
