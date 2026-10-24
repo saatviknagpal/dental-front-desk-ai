@@ -420,7 +420,10 @@ export default function StaffDashboard() {
         </div>
       </div>
 
-      <Card title="Recent conversations (feedback loop)">
+      <Card title="Conversations">
+        <p className="-mt-1 mb-4 text-sm text-muted">
+          Every chat with the assistant. Patient ratings and the AI quality check flag the bad ones, so the team can read the transcript and fix the assistant.
+        </p>
         {data.sessions.length === 0 ? (
           <p className="text-sm text-muted">No conversations yet.</p>
         ) : (
@@ -432,9 +435,9 @@ export default function StaffDashboard() {
                   <th className="pb-2 font-medium">First message</th>
                   <th className="pb-2 font-medium">Turns</th>
                   <th className="pb-2 font-medium">Tool errors</th>
-                  <th className="pb-2 font-medium">Tokens · cost</th>
-                  <th className="pb-2 font-medium">Rating</th>
-                  <th className="pb-2 font-medium">AI review</th>
+                  <th className="pb-2 font-medium">AI cost</th>
+                  <th className="pb-2 font-medium">Patient rating</th>
+                  <th className="pb-2 font-medium" title="A second AI grades finished chats for tone, made-up facts and policy mistakes (npm run evals:prod)">Quality check</th>
                   <th className="pb-2" />
                 </tr>
               </thead>
@@ -458,13 +461,13 @@ export default function StaffDashboard() {
                       )}
                       {s.feedback_comment && <div className="text-xs text-muted">“{s.feedback_comment}”</div>}
                     </td>
-                    <td className="py-2 pr-3" title={s.judge ? [s.judge.summary, ...s.judge.policy_violations].join(" · ") : "Not reviewed yet (npm run evals:prod)"}>
+                    <td className="py-2 pr-3" title={s.judge ? [s.judge.summary, ...s.judge.policy_violations].join(" · ") : "Not checked yet. Run npm run evals:prod to grade recent chats."}>
                       {!s.judge ? (
-                        <span className="text-muted">—</span>
+                        <span className="text-muted">Not checked</span>
                       ) : s.judge.pass ? (
-                        <span className="rounded-full bg-brand-soft px-2 py-0.5 text-xs text-brand-strong">ok · tone {s.judge.tone}/5</span>
+                        <span className="rounded-full bg-brand-soft px-2 py-0.5 text-xs text-brand-strong">Good · tone {s.judge.tone}/5</span>
                       ) : (
-                        <span className="rounded-full bg-warn-soft px-2 py-0.5 text-xs text-warn">flagged</span>
+                        <span className="rounded-full bg-warn-soft px-2 py-0.5 text-xs text-warn">Needs a look</span>
                       )}
                     </td>
                     <td className="py-2 text-right">
