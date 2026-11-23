@@ -3,7 +3,6 @@
 A chat assistant that does the front desk's job for dental practices: it books, moves and cancels appointments, answers insurance and pricing questions, and handles emergencies. It only works through tools over a real Postgres database, so it can't offer a time that isn't open, and it hands off to staff when a person should take over.
 
 - Live demo: https://dental-front-desk-ai.onrender.com (free instance; the first load can take about 50 seconds while it wakes up)
-- Walkthrough video: https://www.loom.com/share/5fa680a239a2483ab2faa68c7376361c
 
 ## Trying it
 
